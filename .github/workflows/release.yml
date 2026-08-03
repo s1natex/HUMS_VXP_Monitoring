@@ -76,6 +76,15 @@ jobs:
         working-directory: app/frontend
         run: npm ci
 
+      # windows-latest no longer preinstalls NSIS, and the build script's
+      # SourceForge fallback is unreliable from cloud runners — install via
+      # choco (present on all Windows runners); build-package.ps1 probes
+      # "C:\Program Files (x86)\NSIS\makensis.exe" and finds this install.
+      - name: Install NSIS
+        if: steps.exists.outputs.exists == 'false'
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
       - name: Build installer
         if: steps.exists.outputs.exists == 'false'
         shell: pwsh
