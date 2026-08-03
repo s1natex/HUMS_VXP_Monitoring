@@ -1,0 +1,22 @@
+# ── Dependencies / build output (rebuilt from source, never committed) ────────
+node_modules/
+app/frontend/dist/
+__pycache__/
+*.pyc
+
+# ── Packaging intermediates (Package/.gitignore also covers these) ────────────
+Package/build/
+Package/tools/
+
+# ── The installer itself ships as a GitHub Release ASSET, not a git file ──────
+# (publish-release.ps1 uploads it; git history must never carry ~90 MB exes)
+*.exe
+
+# ── Runtime user data — seeded on first launch, never belongs in the repo ─────
+app/data/
+
+# ── Local prototypes / reference material — not part of the shipped app ───────
+Resources/
+
+# ── Local tooling state ───────────────────────────────────────────────────────
+.claude/

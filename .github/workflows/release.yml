@@ -1,0 +1,90 @@
+# Release CI — builds the installer and publishes it as a GitHub Release,
+# which every installed app's startup auto-updater picks up.
+#
+# Triggers:
+#   - push to main touching app/ or Package/  → releases IF package.json's
+#     version has no release yet (so bumping the version = shipping an update,
+#     and ordinary pushes on the same version are no-ops)
+#   - manual run from the Actions tab (workflow_dispatch) — e.g. the first
+#     release after the initial push
+#
+# Auth is the workflow's built-in GITHUB_TOKEN (permissions: contents: write) —
+# no repository secrets needed. Runs on windows-latest because the installer
+# build stages the Windows Electron runtime and compiles NSIS.
+
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'Package/**'
+      - '.github/workflows/release.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read app version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Get-Content app/frontend/package.json -Raw | ConvertFrom-Json).version
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "App version: $v"
+
+      - name: Check whether v${{ steps.ver.outputs.version }} is already released
+        id: exists
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "v${{ steps.ver.outputs.version }}" --repo "$env:GITHUB_REPOSITORY" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            "exists=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Release v${{ steps.ver.outputs.version }} already exists - nothing to do"
+          } else {
+            "exists=false" >> $env:GITHUB_OUTPUT
+            Write-Host "Release v${{ steps.ver.outputs.version }} not found - will build and publish"
+          }
+          exit 0
+
+      - name: Setup Node
+        if: steps.exists.outputs.exists == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+
+      - name: Install dependencies
+        if: steps.exists.outputs.exists == 'false'
+        shell: pwsh
+        working-directory: app/frontend
+        run: npm ci
+
+      - name: Build installer
+        if: steps.exists.outputs.exists == 'false'
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File .\Package\build-package.ps1
+
+      - name: Publish release v${{ steps.ver.outputs.version }}
+        if: steps.exists.outputs.exists == 'false'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: powershell -ExecutionPolicy Bypass -File .\Package\publish-release.ps1 -SkipBuild

@@ -1,0 +1,5 @@
+# Build intermediates and the downloaded portable NSIS toolchain
+build/
+tools/
+# The produced installer is ~90 MB — distribute via releases, not git history
+*.exe

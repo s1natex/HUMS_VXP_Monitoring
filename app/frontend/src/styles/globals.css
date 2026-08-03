@@ -1,0 +1,255 @@
+/* ── Design tokens — exact prototype palette ─────────────────────────────── */
+:root {
+  --bg:        #1e2228;
+  --panel:     #262c35;
+  --panel2:    #2e3540;
+  --border:    #3a4456;
+  --border2:   #4a5470;
+  --text:      #e8ecf0;
+  --subtext:   #8a9bb0;
+  --accent:    #4a9eff;
+  --accent2:   #345baa;
+  --green:     #2ecc71;
+  --amber:     #f0a500;
+  --red:       #e74c3c;
+  --hover:     #345baa;
+  --chart-bg:  #181d24;
+  --sel-bg:    #1a2d50;
+  --white-na:  #c0c8d8;
+  --caution:   #f0a500;
+  --critical:  #e74c3c;
+  --normal:    #2ecc71;
+  --topbar-h:     62px;
+  --bottombar-h:  40px;
+  --complist-w:  360px;
+  --reportlist-w:300px;
+  --font: 'Segoe UI', system-ui, sans-serif;
+}
+
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%; width: 100%; overflow: hidden;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font); font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font-family: inherit; cursor: pointer; border: none; outline: none; }
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--subtext); }
+
+/* ── Keyframes ───────────────────────────────────────────────────────────── */
+@keyframes vxp-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes heli-hover {
+  0%, 100% { transform: translateY(0px);  }
+  50%       { transform: translateY(-9px); }
+}
+@keyframes heli-shadow {
+  0%, 100% { transform: scaleX(1);    opacity: 1;    }
+  50%       { transform: scaleX(0.72); opacity: 0.45; }
+}
+@keyframes radar-sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes blip-dot {
+  0%   { opacity: 0; }
+  2%   { opacity: 1; }
+  25%  { opacity: 0.55; }
+  70%  { opacity: 0.12; }
+  100% { opacity: 0; }
+}
+@keyframes blip-ring {
+  0%   { opacity: 0;   transform: scale(1);   }
+  2%   { opacity: 0.8; transform: scale(1);   }
+  35%  { opacity: 0;   transform: scale(3.2); }
+  100% { opacity: 0;   transform: scale(3.2); }
+}
+@keyframes vxp-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+@keyframes vxp-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes vxp-slide-in {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0);     }
+}
+@keyframes vxp-pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(74,158,255,0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(74,158,255,0); }
+  100% { box-shadow: 0 0 0 0 rgba(74,158,255,0); }
+}
+@keyframes vxp-pulse-ring-green {
+  0%   { box-shadow: 0 0 0 0 rgba(46,204,113,0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(46,204,113,0); }
+  100% { box-shadow: 0 0 0 0 rgba(46,204,113,0); }
+}
+@keyframes vxp-pulse-ring-red {
+  0%   { box-shadow: 0 0 0 0 rgba(231,76,60,0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(231,76,60,0); }
+  100% { box-shadow: 0 0 0 0 rgba(231,76,60,0); }
+}
+@keyframes vxp-pulse-ring-amber {
+  0%   { box-shadow: 0 0 0 0 rgba(240,165,0,0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(240,165,0,0); }
+  100% { box-shadow: 0 0 0 0 rgba(240,165,0,0); }
+}
+
+/* ── Animation utility classes ───────────────────────────────────────────── */
+.vxp-fade-up  { animation: vxp-fade-up  0.22s ease-out both; }
+.vxp-fade-in  { animation: vxp-fade-in  0.18s ease-out both; }
+.vxp-slide-in { animation: vxp-slide-in 0.18s ease-out both; }
+
+/* Incident dot pulse rings — used by TopBar incident indicator */
+.vxp-pulse-ring       { animation: vxp-pulse-ring       1.4s ease-out infinite; }
+.vxp-pulse-ring-green { animation: vxp-pulse-ring-green 1.4s ease-out infinite; }
+.vxp-pulse-ring-red   { animation: vxp-pulse-ring-red   1.4s ease-out infinite; }
+.vxp-pulse-ring-amber { animation: vxp-pulse-ring-amber 1.4s ease-out infinite; }
+
+/* System type badge pulse — VXP/HUMS tags in tail dropdown */
+@keyframes vxp-badge-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1);    }
+  50%       { opacity: 0.6; transform: scale(0.95); }
+}
+.vxp-badge-pulse { animation: vxp-badge-pulse 2.4s ease-in-out infinite; }
+
+.vxp-stagger > * { animation: vxp-fade-up 0.22s ease-out both; }
+.vxp-stagger > *:nth-child(1) { animation-delay:   0ms; }
+.vxp-stagger > *:nth-child(2) { animation-delay:  40ms; }
+.vxp-stagger > *:nth-child(3) { animation-delay:  80ms; }
+.vxp-stagger > *:nth-child(4) { animation-delay: 120ms; }
+
+/* ── Filter button (exact prototype style) ───────────────────────────────── */
+.vxp-filter-btn {
+  transition: background 0.12s, color 0.12s, border-color 0.12s, transform 0.08s;
+}
+.vxp-filter-btn:hover  { transform: scale(1.06); }
+.vxp-filter-btn:active { transform: scale(0.96); }
+
+/* ── Nav / action buttons ────────────────────────────────────────────────── */
+.vxp-nav-btn { transition: background 0.12s, color 0.12s, border-color 0.12s; }
+
+.vxp-comp-card { transition: background 0.1s, transform 0.08s; }
+.vxp-comp-card:hover { transform: translateX(2px); }
+
+.vxp-back-btn { transition: background 0.12s, color 0.12s; }
+.vxp-back-btn:hover { background: var(--hover) !important; color: white !important; }
+
+.vxp-action-btn { transition: background 0.15s, transform 0.08s; }
+.vxp-action-btn:hover  { opacity: 0.88; }
+.vxp-action-btn:active { transform: scale(0.97); }
+
+.vxp-lift { transition: transform 0.12s ease, box-shadow 0.12s ease; }
+.vxp-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.28);
+}
+
+/* ── Status dot ──────────────────────────────────────────────────────────── */
+.status-dot {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; flex-shrink: 0;
+}
+.status-dot.white    { background: var(--white-na); }
+.status-dot.green    { background: var(--green); }
+.status-dot.yellow   { background: var(--amber); }
+.status-dot.red      { background: var(--red); }
+.status-dot.ok       { background: var(--green); }
+.status-dot.caution  { background: var(--amber); }
+.status-dot.alert    { background: var(--red); }
+
+/* ── Pill badge ──────────────────────────────────────────────────────────── */
+.pill {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px; border-radius: 10px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.04em; white-space: nowrap;
+}
+.pill.green  { background: rgba(46,204,113,0.18); color: var(--green); }
+.pill.amber  { background: rgba(240,165,0,0.18);  color: var(--amber); }
+.pill.red    { background: rgba(231,76,60,0.18);   color: var(--red); }
+.pill.blue   { background: rgba(74,158,255,0.18);  color: var(--accent); }
+.pill.grey   { background: rgba(138,155,176,0.16); color: var(--subtext); }
+
+/* ── Generic btn ─────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 14px; border-radius: 3px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+  cursor: pointer; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text);
+  transition: background 0.12s, border-color 0.12s;
+}
+.btn:hover { background: var(--panel2); }
+.btn.primary {
+  background: rgba(74,158,255,0.18);
+  border-color: rgba(74,158,255,0.5);
+  color: var(--accent);
+}
+.btn.primary:hover { background: rgba(74,158,255,0.28); }
+.btn.danger {
+  background: rgba(231,76,60,0.15);
+  border-color: rgba(231,76,60,0.4);
+  color: var(--red);
+}
+.btn.danger:hover { background: rgba(231,76,60,0.25); }
+
+/* ── Nav tab ─────────────────────────────────────────────────────────────── */
+.nav-tab {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 14px; border-radius: 3px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.03em;
+  color: var(--subtext); background: transparent;
+  transition: color 0.12s, background 0.12s;
+}
+.nav-tab:hover { color: var(--text); background: rgba(74,158,255,0.08); }
+.nav-tab.active { color: var(--accent); background: rgba(74,158,255,0.14); }
+
+/* ── Card ────────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* ── Modal ───────────────────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+  display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.modal-box {
+  background: var(--panel); border: 1px solid var(--border2);
+  border-radius: 6px; padding: 24px;
+  min-width: 380px; max-width: 500px; width: 90%;
+}
+.modal-title {
+  font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 16px;
+}
+
+/* ── Input ───────────────────────────────────────────────────────────────── */
+input[type="text"], input[type="number"], input[type="date"] {
+  background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 3px; color: var(--text);
+  padding: 5px 10px; font-size: 13px;
+  font-family: inherit; outline: none; width: 100%;
+  color-scheme: dark;
+}
+input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
+  border-color: var(--accent);
+}
+
+/* ── Trending arrows ─────────────────────────────────────────────────────── */
+.trend-up   { color: var(--red); }
+.trend-down { color: var(--amber); }
+.trend-flat { color: var(--subtext); }
