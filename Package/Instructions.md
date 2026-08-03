@@ -106,10 +106,15 @@ installer with a portable NSIS it downloads into `Package\tools` on first run
 
 ## Requirements on the user's PC
 
-- Windows 10/11, no admin rights needed.
-- **Python 3** with `pdfplumber` and `openpyxl` (`py -m pip install pdfplumber openpyxl`)
-  — PDF import and Excel export spawn Python. The app runs without it, but
-  those two features will fail.
+- Windows 10/11, no admin rights needed. That's it — the installer bundles its
+  own Python runtime (`resources\python`: official embeddable Python with
+  `pdfplumber` + `openpyxl` baked in), so PDF import and Excel export work with
+  no user-side setup. If the bundle is ever missing (pre-bundle install), the
+  app falls back to the system `py` launcher.
+
+The **build machine** needs a Python with pip on PATH (`py` or `python`) — the
+wheels for the bundle are fetched for the embedded interpreter (cp312/win_amd64)
+regardless of the build machine's own Python version.
 
 ## How the auto-update works (implemented — `app\frontend\electron\updater.cjs`)
 

@@ -79,6 +79,58 @@ $StagedSource = Join-Path $StagingDir 'resources\source'
 New-Item -ItemType Directory -Force $StagedSource | Out-Null
 Copy-Item "$SourceDir\*.py" $StagedSource
 
+# ── 3b. Bundled Python runtime ────────────────────────────────────────────────
+# Official embeddable Python + pdfplumber/openpyxl wheels staged into
+# resources\python, so user PCs need NO Python install — main.cjs prefers this
+# interpreter when packaged. Both downloads are cached in Package\tools
+# (delete tools\pydeps-* / the embed zip to force a refresh).
+$PyVersion  = '3.12.10'
+$PyTag      = '3.12'
+$PyEmbedZip = Join-Path $ToolsDir "python-$PyVersion-embed-amd64.zip"
+$PyDepsDir  = Join-Path $ToolsDir "pydeps-cp312"
+$StagedPy   = Join-Path $StagingDir 'resources\python'
+
+Step 'Staging bundled Python runtime'
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+if (-not (Test-Path $PyEmbedZip)) {
+    Step "Downloading Python $PyVersion embeddable (one-time, ~11 MB)"
+    New-Item -ItemType Directory -Force $ToolsDir | Out-Null
+    curl.exe -sL -o $PyEmbedZip "https://www.python.org/ftp/python/$PyVersion/python-$PyVersion-embed-amd64.zip"
+    if (-not (Test-Path $PyEmbedZip) -or (Get-Item $PyEmbedZip).Length -lt 1MB) {
+        throw 'Python embeddable download failed'
+    }
+}
+if (-not (Test-Path (Join-Path $PyDepsDir 'pdfplumber'))) {
+    Step 'Downloading Python deps for the bundle (pdfplumber, openpyxl - one-time)'
+    # Wheels are fetched FOR the embedded interpreter version (cp312/win_amd64),
+    # not the build machine's Python, so binary deps (Pillow, cryptography)
+    # always match the runtime we ship.
+    $PipPy = if (Get-Command py -ErrorAction SilentlyContinue) { 'py' }
+             elseif (Get-Command python -ErrorAction SilentlyContinue) { 'python' }
+             else { throw 'No Python on the build machine to fetch deps (need py or python on PATH)' }
+    & $PipPy -m pip install --quiet --target $PyDepsDir `
+        --only-binary=:all: --python-version $PyTag --implementation cp --platform win_amd64 `
+        pdfplumber openpyxl
+    if ($LASTEXITCODE -ne 0) { throw 'pip install for the bundled Python failed' }
+}
+New-Item -ItemType Directory -Force $StagedPy | Out-Null
+Expand-Archive $PyEmbedZip $StagedPy -Force
+$SitePkgs = Join-Path $StagedPy 'Lib\site-packages'
+New-Item -ItemType Directory -Force $SitePkgs | Out-Null
+Copy-Item "$PyDepsDir\*" $SitePkgs -Recurse -Force
+# Point the embeddable runtime at the bundled site-packages AND the app's
+# scripts dir. The ._pth file fully controls sys.path (PYTHONPATH and the
+# script-directory rule are disabled in embeddable builds), so without the
+# ..\source entry import_vxp.py cannot import its sibling trend_detection.
+# Entries are relative to the ._pth location: ..\source = resources\source.
+$PthFile = Get-ChildItem $StagedPy -Filter 'python3*._pth' | Select-Object -First 1
+if (-not $PthFile) { throw 'python3*._pth not found in the embeddable runtime' }
+Add-Content $PthFile.FullName "Lib\site-packages`r`n..\source"
+# Sanity check: the staged interpreter must import the libraries and the app's
+# own modules exactly as main.cjs will spawn them.
+& (Join-Path $StagedPy 'python.exe') -c 'import pdfplumber, openpyxl, trend_detection'
+if ($LASTEXITCODE -ne 0) { throw 'Bundled Python sanity check failed (pdfplumber/openpyxl/trend_detection import)' }
+
 # ── 4. NSIS: system install if available, else portable download (first run) ──
 $MakeNsis = Join-Path $ToolsDir "nsis-$NsisVersion\makensis.exe"
 if (-not (Test-Path $MakeNsis)) {

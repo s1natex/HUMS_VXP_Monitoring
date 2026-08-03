@@ -1070,6 +1070,18 @@ const SOURCE_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'source')
   : path.join(__dirname, '..', '..', 'source')
 
+// Packaged builds ship their own Python (resources\python — embeddable runtime
+// with pdfplumber/openpyxl baked in by build-package.ps1), so user PCs need no
+// Python install. Falls back to the system launcher when the bundle is absent
+// (dev mode, or a pre-bundle install that was updated in place).
+function pythonCommand() {
+  if (app.isPackaged) {
+    const bundled = path.join(process.resourcesPath, 'python', 'python.exe')
+    if (fs.existsSync(bundled)) return bundled
+  }
+  return process.platform === 'win32' ? 'py' : 'python3'
+}
+
 ipcMain.handle('import:pdf', async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender)
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
@@ -1104,8 +1116,7 @@ ipcMain.handle('import:pdf', async (event) => {
     emitProgress(0, 0, 0)
 
     return new Promise((resolve) => {
-      const pythonCmd = process.platform === 'win32' ? 'py' : 'python3'
-      const proc = spawn(pythonCmd, [scriptPath, pdfPath, '--limits', limitsJson])
+      const proc = spawn(pythonCommand(), [scriptPath, pdfPath, '--limits', limitsJson])
       let stdout = ''
 
       proc.stderr.on('data', (chunk) => {
@@ -1379,8 +1390,7 @@ ipcMain.handle('export:excel', async (event, payload, defaultFilename) => {
 
   const scriptPath = path.join(SOURCE_DIR, 'export_excel.py')
   return new Promise((resolve) => {
-    const pythonCmd = process.platform === 'win32' ? 'py' : 'python3'
-    const proc = spawn(pythonCmd, [scriptPath, tmpPayload, filePath])
+    const proc = spawn(pythonCommand(), [scriptPath, tmpPayload, filePath])
     let stdout = ''; let stderr = ''
     proc.stdout.on('data', (chunk) => { stdout += chunk.toString() })
     proc.stderr.on('data', (chunk) => { stderr += chunk.toString() })
