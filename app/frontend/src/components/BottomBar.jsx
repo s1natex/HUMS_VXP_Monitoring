@@ -26,7 +26,7 @@ function PressBtn({ onClick, style, children, title, disabled }) {
   )
 }
 
-export default function BottomBar({ importProgress, exportProgress, onImport, onExport, onCheckUpdates, appVersion }) {
+export default function BottomBar({ importProgress, exportProgress, onImport, onExport, onCheckUpdates, appVersion, updateChecking }) {
   const importing = !!importProgress
   const exporting = !!exportProgress
   const busy      = importing || exporting
@@ -77,6 +77,15 @@ export default function BottomBar({ importProgress, exportProgress, onImport, on
               {progress.message ?? (exporting ? 'Exporting…' : 'Importing…')}
             </span>
           </>
+        ) : updateChecking ? (
+          // Update check in flight (startup or version-label click) — shown in
+          // the version slot so the check is visibly "doing something".
+          <span style={{
+            color: 'var(--accent)', fontSize: 11, fontWeight: 600,
+            animation: 'vxp-badge-pulse 1.2s ease-in-out infinite',
+          }}>
+            Checking for updates…
+          </span>
         ) : (
           <span
             title="Check for updates"

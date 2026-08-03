@@ -76,6 +76,9 @@ async function fetchLatestRelease() {
 async function checkForUpdates({ manual = false, autoDownload = false } = {}) {
   if (!UPDATE_REPO) { broadcast({ status: 'disabled', manual }); return }
   if (downloading) return
+  // A check can take up to CHECK_TIMEOUT_MS on a slow network — repeated
+  // version-label clicks must not stack concurrent checks.
+  if (lastEvent.status === 'checking') return
   // Already downloaded this session — re-prompt instead of re-checking.
   if (downloadedPath && available) {
     broadcast({ status: 'downloaded', manual, version: available.version })

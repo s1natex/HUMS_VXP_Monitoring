@@ -765,6 +765,7 @@ export default function App() {
         onExport={handleExport}
         onCheckUpdates={window.electronAPI ? handleCheckUpdates : undefined}
         appVersion={appVersion}
+        updateChecking={updateEvt?.status === 'checking'}
       />
 
       {!updateDismissed && (
