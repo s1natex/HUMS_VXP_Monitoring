@@ -8,6 +8,13 @@ against engineering limits, sign off incidents, and track trends over time.
 
 ## Quick use
 
+### Deployment of new updates
+- Make Changes in ./app/
+- Bump version + update CHANGELOG.md + update project_spec.md
+- Commit -> Push to Github Repository
+- Github Actions workflow handles compile release using version bump and CHANGELOG.md
+- User side app startup checks for updates and applies new release when available
+
 ### Run the app in development
 
 ```powershell
