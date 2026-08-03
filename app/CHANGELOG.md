@@ -6,6 +6,26 @@ Format: `[version] — date — platform`
 
 ---
 
+## [1.0.1] — 2026-08-03 — React/Electron
+
+**In-app auto-update via GitHub Releases**, plus the CI pipeline that publishes them. On every startup the app checks `github.com/s1natex/HUMS_VXP_Monitoring` for a newer release, downloads it in the background and prompts *Restart & Update* — the silent installer replaces app files only and `data\` is never touched (now including uninstall).
+
+### Added
+- **Auto-updater** (`electron/updater.cjs`): startup flow *connectivity gate (`net.isOnline`) → GitHub `releases/latest` check (tag `vX.Y.Z` vs running version) → streamed download to temp with progress + backpressure + truncation guard → detached apply script* that waits for the app to exit (installer exit code 5 = locked, retried up to a minute), runs the installer `/S /D=<install dir>` and relaunches. Repo slug lives in `package.json → updateRepo`; empty string disables the feature. Check/download failures at startup are silent; manual checks report outcomes as toasts. Dev mode can check/download but never installs.
+- **Update UI**: `UpdateBanner.jsx` (bottom-right: download progress with MB counter → *Restart & Update* prompt → error + Retry), pulsing *Checking for updates…* indicator in the BottomBar version slot, and the version label is clickable for a manual check. New IPC: `update:check`, `update:download`, `update:install`, `update:get-state`, `update:event` stream, `app:version`.
+- **Release pipeline**: `Package\publish-release.ps1` (builds installer, extracts this version's CHANGELOG section as release notes, creates release `vX.Y.Z` and uploads the asset via `gh` CLI or `GITHUB_TOKEN` REST) and `.github\workflows\release.yml` (windows runner; on push to `main` releases automatically when `package.json`'s version has no release yet — version bump = ship; installs NSIS via choco; built-in `GITHUB_TOKEN`, no secrets).
+- **Root `.gitignore`**: keeps `node_modules`, build output, installers (`*.exe` — they ship as release assets), runtime `app/data\` and local `Resources\` out of the public repo.
+
+### Changed
+- **Uninstaller never touches data**: the *Also delete the data folder?* prompt was removed — `Uninstall.exe` always keeps `data\` (delete manually if truly unwanted), matching the install/update guarantee.
+- **BottomBar version label reads `package.json` at runtime** (`app:version` IPC) instead of a hardcoded string — a release bump is now `package.json` + CHANGELOG only.
+- **`build-package.ps1` NSIS resolution**: portable copy → system `makensis` (PATH, then standard install dirs) → SourceForge download, so CI runners and dev machines both build without manual setup.
+
+### Docs
+- **`Package/Instructions.md`**: releasing via CI or `publish-release.ps1`, auto-update flow documentation, updated uninstall behaviour.
+
+---
+
 ## [1.0.0] — 2026-07-28 — React/Electron
 
 First distributable release: **Windows packaging, installer/updater and uninstaller** under `./Package`, plus first-run data seeding in the app. No changes to monitoring features.

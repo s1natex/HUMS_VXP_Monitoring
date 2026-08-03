@@ -1,4 +1,4 @@
-# VXP Monitoring — Project Spec v1.0.0 (VXP 1.0 MVP)
+# VXP Monitoring — Project Spec v1.0.1 (VXP 1.0 MVP)
 **Brook Aviation | S-76C++ Fleet | Maintenance Vibration Monitoring**
 
 > This document is a living spec for the `./app/` codebase.
@@ -251,6 +251,12 @@ All `tail` parameters — on every channel that takes one — are validated agai
 | `custom-limits:save`   | `tail, limits`          | `{ ok }` / `{ ok:false, error }` (error contract normalized v0.9.5) |
 | `custom-limits:delete` | `tail`                  | `{ ok }` — removes `custom_limits.json`  |
 | `backup:check-comp`    | `tail, compKey`         | `boolean` — whether a purge backup exists |
+| `app:version`          | —                       | running app version string (`package.json`), shown in BottomBar (v1.0.1) |
+| `update:check`         | —                       | manual update check; auto-downloads when newer (v1.0.1) |
+| `update:download`      | —                       | (re)start the update download (Retry path) (v1.0.1) |
+| `update:install`       | —                       | `{ ok }` / `{ ok:false, error }` — quit → silent install → relaunch; packaged only (v1.0.1) |
+| `update:get-state`     | —                       | last `update:event` payload, for late subscribers (v1.0.1) |
+| `update:event` (push)  | —                       | main → renderer stream: `{ status: checking\|none\|available\|downloading\|downloaded\|offline\|disabled\|error, … }` (v1.0.1) |
 | `import:pdf`           | —                       | `{ ok, results[], tails, imported, skipped, failed, totalDates, totalIncidents }` — opens a **multi-select** file picker (v0.9.9) and processes the selected PDFs **sequentially** via the internal `importOnePdf()`; each `results[]` entry is `{ file, ok, tail?, files?, dates?, incidents?, skipped?, reason? }`. Per file (unchanged behaviour): spawns `import_vxp.py`, auto-detects tail from PDF (empty/undetected/ambiguous tail suffix is rejected), saves per-date JSONs, then scans for incidents with per-tail effective limits + a trend map computed **as of each import's date** — one tracker entry per (date, component), judged on the date's latest session; qualifies on caution/critical, or on a **sustained up-trend** ('up' on ≥ 3 consecutive import dates, `computeSustainedUp`, v0.8.6). A bad file no longer aborts the batch — it becomes a `skipped` (duplicate / already-imported / no new sessions) or failed (`!ok && !skipped`) result and the loop continues. `import:progress` events carry `fileIndex`/`fileCount` + overall batch pct. Duplicate PDFs are rejected by filename or content hash — a date file merged from several PDFs keeps every contributing hash in `source_hashes` (v0.9.2) so re-importing any of the originals is still detected; the block only applies while **every** session the PDF carries is still on disk (v0.9.3) — after a date file of that PDF was deleted, re-importing it is allowed and the session-level dedup merges back just the missing sessions |
 
 ---
@@ -639,15 +645,16 @@ reintroduced, the old schema supported `system IN ('vxp','hums')`; recover it fr
 
 ---
 
-## 13. Packaging & Distribution (v1.0.0)
+## 13. Packaging & Distribution (v1.0.0, auto-update v1.0.1)
 
 Windows packaging lives in `./Package` (full guide: `Package/Instructions.md`).
 
 - **Build**: `powershell -ExecutionPolicy Bypass -File .\Package\build-package.ps1` →
   `Package\HUMS VXP Monitoring Install.exe` (version read from `frontend/package.json`).
   Stages the Electron runtime manually (exe renamed → `app.isPackaged` true; app code in
-  `resources\app`, Python in `resources\source`) and compiles `installer.nsi` with a portable
-  NSIS auto-downloaded to `Package\tools`. No electron-builder.
+  `resources\app`, Python in `resources\source`) and compiles `installer.nsi` with NSIS
+  (portable copy in `Package\tools` → system `makensis` incl. standard install dirs →
+  SourceForge download, in that order — v1.0.1). No electron-builder.
 - **Installed layout**: `<chosen folder>\HUMS VXP Monitoring\` — exe + runtime, `data\`,
   `version.txt`, `Uninstall.exe`. `main.cjs` resolves `DATA_ROOT` next to the exe when
   packaged (`SOURCE_DIR` → `resources\source`); dev paths unchanged.
@@ -658,6 +665,17 @@ Windows packaging lives in `./Package` (full guide: `Package/Instructions.md`).
   registry (seeded with `4X-BHT`), `report_signer.json`, `comp_limits_vxp.json` and per-tail
   `imports\`/`reports\` scaffolds. Never overwrites; `report_actions_vxp.json` deliberately
   excluded (missing ⇒ built-in defaults vs `[]` ⇒ user-emptied, see `actions:load`).
-- **Planned auto-update** (in-app, not yet implemented): on startup compare `version.txt`
-  against the repo's latest release → download installer → run `/S` → restart. CI/CD on the
-  repo will build installers and own failure handling.
+- **Auto-update (v1.0.1, implemented — `electron/updater.cjs`)**: ~3 s after startup —
+  `net.isOnline()` gate → unauthenticated GitHub `releases/latest` check on
+  `package.json → updateRepo` (public repo `s1natex/HUMS_VXP_Monitoring`; tag `vX.Y.Z` vs
+  `app.getVersion()`) → auto-download of the `.exe` asset to temp (progress events,
+  write backpressure, truncation guard) → `UpdateBanner` prompts *Restart & Update* → app
+  quits and a detached cmd script retries the silent installer (`/S /D=<install dir>`,
+  exit 5 = still locked, ≤ 60 tries) then relaunches. Startup check failures are silent;
+  the BottomBar version label (runtime `app:version`, clickable) runs manual checks with
+  toast outcomes and a pulsing *Checking for updates…* indicator. Dev mode never installs.
+  Uninstaller (v1.0.1) **always** keeps `data\` — the delete prompt was removed.
+- **Release pipeline (v1.0.1)**: `Package\publish-release.ps1` (CHANGELOG section →
+  release notes; `gh` CLI or `GITHUB_TOKEN` REST) and `.github\workflows\release.yml` —
+  push to `main` releases automatically when the `package.json` version has no GitHub
+  release yet (version bump = ship); NSIS via choco; built-in token, no secrets.
