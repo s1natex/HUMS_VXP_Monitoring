@@ -1,4 +1,4 @@
-# VXP Monitoring — Project Spec v1.0.1 (VXP 1.0 MVP)
+# VXP Monitoring — Project Spec v1.0.2 (VXP 1.0 MVP)
 **Brook Aviation | S-76C++ Fleet | Maintenance Vibration Monitoring**
 
 > This document is a living spec for the `./app/` codebase.
@@ -674,8 +674,13 @@ Windows packaging lives in `./Package` (full guide: `Package/Instructions.md`).
   exit 5 = still locked, ≤ 60 tries) then relaunches. Startup check failures are silent;
   the BottomBar version label (runtime `app:version`, clickable) runs manual checks with
   toast outcomes and a pulsing *Checking for updates…* indicator. Dev mode never installs.
-  Uninstaller (v1.0.1) **always** keeps `data\` — the delete prompt was removed.
+  A re-check only short-circuits to the *Restart & Update* prompt while the downloaded
+  installer still exists in temp; a stale download (temp cleanup) is discarded and
+  re-fetched (v1.0.2). Uninstaller (v1.0.1) **always** keeps `data\` — the delete prompt
+  was removed.
 - **Release pipeline (v1.0.1)**: `Package\publish-release.ps1` (CHANGELOG section →
   release notes; `gh` CLI or `GITHUB_TOKEN` REST) and `.github\workflows\release.yml` —
   push to `main` releases automatically when the `package.json` version has no GitHub
   release yet (version bump = ship); NSIS via choco; built-in token, no secrets.
+  The CHANGELOG is read as UTF-8 and the notes file is written BOM-less (v1.0.2 — PS 5.1
+  otherwise decodes BOM-less UTF-8 as ANSI, publishing mojibake release notes).

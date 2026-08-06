@@ -79,10 +79,16 @@ async function checkForUpdates({ manual = false, autoDownload = false } = {}) {
   // A check can take up to CHECK_TIMEOUT_MS on a slow network — repeated
   // version-label clicks must not stack concurrent checks.
   if (lastEvent.status === 'checking') return
-  // Already downloaded this session — re-prompt instead of re-checking.
+  // Already downloaded this session — re-prompt instead of re-checking, but
+  // only while the installer is actually still on disk (Windows temp cleanup
+  // can remove it mid-session; a stale path would dead-end the install).
   if (downloadedPath && available) {
-    broadcast({ status: 'downloaded', manual, version: available.version })
-    return
+    if (fs.existsSync(downloadedPath)) {
+      broadcast({ status: 'downloaded', manual, version: available.version })
+      return
+    }
+    downloadedPath = null
+    available = null
   }
   if (!net.isOnline()) { broadcast({ status: 'offline', manual }); return }
 

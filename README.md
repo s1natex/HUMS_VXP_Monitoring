@@ -13,6 +13,7 @@ against engineering limits, sign off incidents, and track trends over time.
 - Bump version + update CHANGELOG.md + update project_spec.md
 - Commit -> Push to Github Repository
 - Github Actions workflow handles compile release using version bump and CHANGELOG.md
+  (the new version's CHANGELOG section becomes the GitHub release notes)
 - User side app startup checks for updates and applies new release when available
 
 ### Run the app in development

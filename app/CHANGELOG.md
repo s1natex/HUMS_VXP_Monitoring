@@ -6,6 +6,25 @@ Format: `[version] — date — platform`
 
 ---
 
+## [1.0.2] — 2026-08-06 — React/Electron
+
+Reliability pass over the v1.0.1 auto-update release: the updater now recovers when the
+downloaded installer disappears from temp, and published release notes render their
+UTF-8 punctuation correctly.
+
+### Fixed
+- **Updater stale-download recovery** (`electron/updater.cjs`): a re-check only re-prompts
+  *Restart & Update* while the downloaded installer still exists on disk. Previously, if
+  Windows temp cleanup removed it mid-session, every check re-broadcast `downloaded` and
+  *Restart & Update* dead-ended with *No downloaded update found* — now the stale state is
+  cleared and the check falls through to a fresh download.
+- **Release notes encoding** (`Package\publish-release.ps1`): the CHANGELOG is read as UTF-8
+  (Windows PowerShell 5.1 read BOM-less UTF-8 as ANSI, mangling em dashes/arrows into
+  `â€”`-style mojibake on the GitHub release page — v1.0.1's notes were repaired in place)
+  and the notes file is written BOM-less so no invisible `U+FEFF` leads the release body.
+
+---
+
 ## [1.0.1] — 2026-08-03 — React/Electron
 
 **In-app auto-update via GitHub Releases**, plus the CI pipeline that publishes them. On every startup the app checks `github.com/s1natex/HUMS_VXP_Monitoring` for a newer release, downloads it in the background and prompts *Restart & Update* — the silent installer replaces app files only and `data\` is never touched (now including uninstall).

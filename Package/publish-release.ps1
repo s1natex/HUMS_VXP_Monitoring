@@ -62,7 +62,9 @@ $NotesFile = Join-Path $env:TEMP "hums_vxp_release_notes_$Version.md"
 $Notes = "HUMS VXP Monitoring $Tag"
 $Changelog = Join-Path $RepoRoot 'app\CHANGELOG.md'
 if (Test-Path $Changelog) {
-    $lines = Get-Content $Changelog
+    # -Encoding UTF8: Windows PowerShell 5.1 otherwise reads BOM-less UTF-8 as
+    # ANSI, mangling em dashes/arrows in the published release notes.
+    $lines = Get-Content $Changelog -Encoding UTF8
     $start = -1
     for ($i = 0; $i -lt $lines.Count; $i++) {
         if ($lines[$i] -match "^##\s*\[$([regex]::Escape($Version))\]") { $start = $i; break }
@@ -78,7 +80,9 @@ if (Test-Path $Changelog) {
         Write-Warning "No '## [$Version]' section found in CHANGELOG.md - using a generic note"
     }
 }
-$Notes | Out-File $NotesFile -Encoding utf8
+# WriteAllText with BOM-less UTF-8: Out-File -Encoding utf8 in PS 5.1 writes a
+# BOM, which gh would pass through as an invisible U+FEFF in the release body.
+[IO.File]::WriteAllText($NotesFile, $Notes, [Text.UTF8Encoding]::new($false))
 
 # ── 4. Create the release + upload the asset ──────────────────────────────────
 $gh = Get-Command gh -ErrorAction SilentlyContinue
