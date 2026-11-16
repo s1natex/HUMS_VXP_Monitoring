@@ -55,6 +55,7 @@ function ComponentDetail({ tracker, tail, entryFilter, onUpdate, onSeeChart, hig
       entryFilter === 'signed'  ? !!e.action : true
     )
     .sort((a, b) => ddmmyyyyToIso(b.date).localeCompare(ddmmyyyyToIso(a.date)))
+  const cutoffIso = recentCutoffIso()
 
   // Tab switches re-render (not remount) this component, so staged actions
   // survive — but the selection could reference entries hidden by the new tab.
@@ -306,14 +307,17 @@ function ComponentDetail({ tracker, tail, entryFilter, onUpdate, onSeeChart, hig
               : 'No entries'}
           </div>
         )}
-        {shownEntries.map(e => {
+        {shownEntries.map((e, idx) => {
           const shown = staged[e.entry_id] ?? e.action
           const dirty = staged[e.entry_id] != null && staged[e.entry_id] !== e.action
           const rowSelectable = selectMode
           const isRedirected = highlightEntryId === e.entry_id
+          const oldStart = ddmmyyyyToIso(e.date) < cutoffIso &&
+            (idx === 0 || ddmmyyyyToIso(shownEntries[idx - 1].date) >= cutoffIso)
           return (
+            <React.Fragment key={e.entry_id}>
+            {oldStart && <OlderDivider />}
             <div
-              key={e.entry_id}
               ref={isRedirected ? highlightRef : undefined}
               className="card"
               // In select mode the whole row toggles selection; the action
@@ -389,6 +393,7 @@ function ComponentDetail({ tracker, tail, entryFilter, onUpdate, onSeeChart, hig
                 </button>
               )}
             </div>
+            </React.Fragment>
           )
         })}
       </div>
@@ -411,12 +416,14 @@ function ComponentDetail({ tracker, tail, entryFilter, onUpdate, onSeeChart, hig
 // BOTH lists (its pending dates on one side, its signed dates on the other).
 function ComponentList({ trackers, selectedKey, onSelect, onViewReportsClick, onGenerateClick, filter, onFilterChange, pendingActionsTotal }) {
   const [filterHover, setFilterHover] = useState(null)
-  const filtered = (trackers ?? []).filter(t => {
+  const filtered = sortTrackersByLatest((trackers ?? []).filter(t => {
     const es = t.entries ?? []
     if (filter === 'pending') return es.some(e => !e.action)
     if (filter === 'signed')  return es.some(e => !!e.action)
     return true
-  })
+  }), filter)
+  const cutoff = recentCutoffIso()
+  const firstOld = filtered.findIndex(x => x.latest < cutoff)
 
   return (
     <div style={{
@@ -471,13 +478,14 @@ function ComponentList({ trackers, selectedKey, onSelect, onViewReportsClick, on
             No components
           </div>
         )}
-        {filtered.map(t => {
+        {filtered.map(({ t }, idx) => {
           const [name, location] = t.comp_key.split(' | ')
           const es = t.entries ?? []
           const pendingCount = es.filter(e => !e.action).length
           return (
+            <React.Fragment key={t.comp_key}>
+            {idx === firstOld && <OlderDivider />}
             <div
-              key={t.comp_key}
               onClick={() => onSelect(t.comp_key)}
               style={{
                 padding: '12px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
@@ -499,6 +507,7 @@ function ComponentList({ trackers, selectedKey, onSelect, onViewReportsClick, on
                 )}
               </div>
             </div>
+            </React.Fragment>
           )
         })}
       </div>
@@ -534,6 +543,42 @@ function ddmmyyyyToIso(d) {
 }
 function isoToDdmmyyyy(iso) {
   return iso.split('-').reverse().join('-')
+}
+
+// Newest alerts first; anything older than RECENT_DAYS sits below a divider.
+const RECENT_DAYS = 30
+function recentCutoffIso() {
+  const d = new Date()
+  d.setDate(d.getDate() - RECENT_DAYS)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Newest entry date (ISO) of a tracker among the entries the tab shows.
+function trackerLatestIso(t, filter) {
+  return (t.entries ?? [])
+    .filter(e => filter === 'pending' ? !e.action : filter === 'signed' ? !!e.action : true)
+    .map(e => ddmmyyyyToIso(e.date))
+    .reduce((a, b) => (b > a ? b : a), '')
+}
+
+function sortTrackersByLatest(trackers, filter) {
+  return [...trackers]
+    .map(t => ({ t, latest: trackerLatestIso(t, filter) }))
+    .sort((a, b) => b.latest.localeCompare(a.latest) || a.t.comp_key.localeCompare(b.t.comp_key))
+}
+
+function OlderDivider() {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px',
+      fontSize: 10, fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase',
+      color: 'var(--subtext)',
+    }}>
+      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+      Older than {RECENT_DAYS} days
+      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+    </div>
+  )
 }
 
 // Full [earliest, latest] entry date span across a set of trackers, as ISO strings.
@@ -928,8 +973,9 @@ export default function Reports({ activeTail, componentReports, onComponentRepor
   const matchesFilter = t =>
     filter === 'pending' ? (t.entries ?? []).some(e => !e.action) :
     filter === 'signed'  ? (t.entries ?? []).some(e => !!e.action) : true
-  const selected = (componentReports ?? []).filter(matchesFilter).find(t => t.comp_key === selectedKey)
-    ?? (componentReports ?? []).find(matchesFilter)
+  const visibleTrackers = sortTrackersByLatest((componentReports ?? []).filter(matchesFilter), filter).map(x => x.t)
+  const selected = visibleTrackers.find(t => t.comp_key === selectedKey)
+    ?? visibleTrackers[0]
     ?? null
 
   function handleUpdate(updated) {

@@ -150,7 +150,7 @@ const CustomTooltip = ({ active, payload }) => {
 // scrolls it into view.
 // onIncidentClick(entry): fired when a data point carrying a PENDING (unactioned)
 // tracker entry is clicked — Charts opens the sign-action modal on it.
-function ComponentChart({ compKey, points, editableLimits, trackerEntries, highlight, onIncidentClick }) {
+function ComponentChart({ compKey, points, editableLimits, trackerEntries, highlight, onIncidentClick, onRangeChange }) {
   const limitsMap = editableLimits || LIMITS
   const limits = limitsMap[compKey]
 
@@ -158,6 +158,8 @@ function ComponentChart({ compKey, points, editableLimits, trackerEntries, highl
   const [range,     setRange]     = React.useState(null)   // { from, to } (YYYY-MM-DD) | null
   const [rangeOpen, setRangeOpen] = React.useState(false)
   useEffect(() => { setRange(null); setRangeOpen(false) }, [compKey])
+  // Charts hides the header trend pill while the range excludes the latest date.
+  useEffect(() => { onRangeChange?.(range) }, [range, onRangeChange])
 
   // Full available date span (points are already YYYY-MM-DD).
   const fullSpan = useMemo(() => {
@@ -255,30 +257,55 @@ function ComponentChart({ compKey, points, editableLimits, trackerEntries, highl
   }, [data, highlight])
 
   // ── Trend indicator ────────────────────────────────────────────────────────
-  // Same algorithm as every other trend indicator (utils/trendDetection.js):
-  // Theil-Sen over the last TREND_WINDOW visible dates. Rendered only as a
-  // dashed segment across the fitted window — the textual trend tag lives in
-  // the Charts header pill, not on the chart itself.
-  const trendInfo = useMemo(() => detectTrend(visiblePoints), [visiblePoints])
+  // Same algorithm as every other trend indicator (utils/trendDetection.js),
+  // always run on the FULL history (not the date-range filter) so the line
+  // shows the CURRENT trend only: drawn from where it started (trendInfo.onset)
+  // to the latest date, and hidden when the range filter excludes the latest
+  // date. The textual trend tag lives in the Charts header pill.
+  const trendInfo = useMemo(() => detectTrend(points), [points])
 
   const trendSeg = useMemo(() => {
     const t = trendInfo
-    if (t.trend === 'stable' || t.dates.length < 2) return null
+    if (t.trend === 'stable' || !t.onset || t.dates.length < 2) return null
     const centerByDate = {}
     groups.forEach(g => { centerByDate[g.date] = g.start + g.units / 2 })
-    const x0 = centerByDate[t.dates[0]]
-    const x1 = centerByDate[t.dates[t.dates.length - 1]]
-    if (x0 == null || x1 == null) return null
-    // Endpoints from the day-based fit; the segment is drawn straight across
-    // the equal-width date columns, so endpoints are exact and the middle is
-    // an approximation when calendar gaps are uneven.
-    return {
-      trend: t.trend,
-      x0, x1,
-      y0: Math.max(t.intercept, 0),
-      y1: Math.max(t.intercept + t.slope * t.spanDays, 0),
+    const latest = t.dates[t.dates.length - 1]
+    const x1 = centerByDate[latest]
+    if (x1 == null) return null                       // latest date not in view
+
+    let startDate, y0, y1
+    if (t.shift) {
+      // Level shift: rise/fall from the baseline level at the last pre-step
+      // date (where the move departs from) to the current window level.
+      const allDates = [...new Set((points || []).map(p => p.date))].sort()
+      const i = allDates.indexOf(t.onset)
+      startDate = i > 0 ? allDates[i - 1] : t.onset
+      y0 = t.baseline
+      y1 = t.level
+    } else {
+      // Slope call: the Theil-Sen fit across its window (onset = window start).
+      // Endpoints are exact; the middle is an approximation when calendar gaps
+      // are uneven, since date columns are equal-width.
+      startDate = t.onset
+      y0 = t.intercept
+      y1 = t.intercept + t.slope * t.spanDays
     }
-  }, [trendInfo, groups])
+
+    // Range filter clipped the start: begin at the first visible date, with y
+    // interpolated by column position along the segment.
+    let x0 = centerByDate[startDate]
+    if (x0 == null) {
+      const visible = groups.filter(g => g.date > startDate && g.date <= latest)
+      if (!visible.length) return null
+      const full = (points || []).map(p => p.date).filter(d => d >= startDate && d <= latest)
+      const span = new Set(full).size - 1
+      const skipped = span - (visible.length - 1)
+      x0 = visible[0].start + visible[0].units / 2
+      if (span > 0) y0 = y0 + (y1 - y0) * (skipped / span)
+    }
+    if (x0 >= x1) return null
+    return { trend: t.trend, x0, x1, y0: Math.max(y0, 0), y1: Math.max(y1, 0) }
+  }, [trendInfo, groups, points])
 
   // Start scrolled to the right edge so the latest data is visible by default —
   // unless a deep-linked highlight point exists, which is centred instead.

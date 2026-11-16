@@ -1,4 +1,4 @@
-# VXP Monitoring — Project Spec v1.0.2 (VXP 1.0 MVP)
+# VXP Monitoring — Project Spec v1.0.3 (VXP 1.0 MVP)
 **Brook Aviation | S-76C++ Fleet | Maintenance Vibration Monitoring**
 
 > This document is a living spec for the `./app/` codebase.
@@ -135,7 +135,7 @@ app/
 
 Two report file kinds live under `data/{tail}/reports/`:
 
-**Component tracker** — one JSON per component per tail (`data/{tail}/reports/{sanitizedCompKey}.json`), accumulating **one entry per import date** (v0.8.5 — judged on the date's chronologically latest session). An entry (pending action) opens **only at import time**, when the date's latest reading is **caution/critical**, or when the trend classification has been **'up' on ≥ 3 consecutive import dates** (`TREND_STREAK_DATES`, v0.8.6 — a single fresh up call alone does not demand an action). `entry_id` is `{date}__{sanitizedCompKey}`. When a newer session arrives for a recorded date: an un-actioned entry is refreshed in place (or **removed** when the latest session no longer breaches); an actioned entry is untouched except a limit-status **escalation** (e.g. caution → alert), which refreshes the snapshot and **clears the applied action** (preserved as `prev_action`) so the worse reading drops back to pending and must be re-actioned before it can be reported. Legacy per-session duplicates are collapsed by a one-shot migration at app startup (`migrateAllTrackers`).
+**Component tracker** — one JSON per component per tail (`data/{tail}/reports/{sanitizedCompKey}.json`), accumulating **one entry per import date** (v0.8.5 — judged on the date's chronologically latest session). An entry (pending action) opens when the date's latest reading is **caution/critical**, or when the date's as-of trend is **'up'** (v1.0.3 — the same call every trend indicator shows; the v0.8.6 3-consecutive-dates streak rule was dropped so every displayed uptrend has a prompt). Entries are written at import time, and the **latest import date of every tail is resynced** at app startup and after each import (`resyncLatestIncidents`, v1.0.3): missing entries are added, un-actioned ones refreshed or removed when they no longer qualify; actioned entries and older dates are untouched. `entry_id` is `{date}__{sanitizedCompKey}`. When a newer session arrives for a recorded date: an un-actioned entry is refreshed in place (or **removed** when the latest session no longer breaches); an actioned entry is untouched except a limit-status **escalation** (e.g. caution → alert), which refreshes the snapshot and **clears the applied action** (preserved as `prev_action`) so the worse reading drops back to pending and must be re-actioned before it can be reported. Legacy per-session duplicates are collapsed by a one-shot migration at app startup (`migrateAllTrackers`).
 
 **Entry-level sign model (v0.8.7):** applying an action to an entry **signs that date** — there is no separate Sign Off button. Two filter tabs — **Actions Pending** (amber) and **Signed Actions** (green), no "All" tab, defaulting to Actions Pending — filter **entries as well as components**: Actions Pending shows components with ≥ 1 unactioned entry (and only their unactioned entries); Signed Actions shows components with ≥ 1 actioned entry (their actioned entries, read-only). A partially-actioned component appears in **both** lists; no pending/signed pills are shown — the tab defines the state, and pending counts are never shown inside the Signed view. A component whose entries are **all** actioned counts as signed (tracker `status: "signed"` + `signed_at` maintained on save via `allEntriesActioned()` in `reportStore.js`). **Report generation is per-entry (v0.8.9):** a component qualifies with **≥ 1 signed entry** and only its signed entries are compiled, in **chronological date order** (v0.9.2 — tracker order is scan order, which backfilled imports break) — pending entries do not exist for generation until they are actioned. The Actions Pending tab carries a **count badge** of the tail-wide unactioned entries. **Generate Report** sits next to **View Reports** at the top of the component list. Actions are assigned per entry: pick from the dropdown (staged), then persist with **Apply**; **Select** toggles multi-select bulk apply; in the Signed Actions tab the header button reads **Revert Action** (select actioned entries → clears their `action`, dates return to pending). Each entry row also has a **See Chart** button that deep-links to the Charts view with that entry's data point ring-marked and scrolled into view. **Signer identity is never stored on trackers** (`signer_id`/`signer_name` stay `null`); the signer is chosen at report generation and recorded only on the generated document.
 
@@ -257,11 +257,11 @@ All `tail` parameters — on every channel that takes one — are validated agai
 | `update:install`       | —                       | `{ ok }` / `{ ok:false, error }` — quit → silent install → relaunch; packaged only (v1.0.1) |
 | `update:get-state`     | —                       | last `update:event` payload, for late subscribers (v1.0.1) |
 | `update:event` (push)  | —                       | main → renderer stream: `{ status: checking\|none\|available\|downloading\|downloaded\|offline\|disabled\|error, … }` (v1.0.1) |
-| `import:pdf`           | —                       | `{ ok, results[], tails, imported, skipped, failed, totalDates, totalIncidents }` — opens a **multi-select** file picker (v0.9.9) and processes the selected PDFs **sequentially** via the internal `importOnePdf()`; each `results[]` entry is `{ file, ok, tail?, files?, dates?, incidents?, skipped?, reason? }`. Per file (unchanged behaviour): spawns `import_vxp.py`, auto-detects tail from PDF (empty/undetected/ambiguous tail suffix is rejected), saves per-date JSONs, then scans for incidents with per-tail effective limits + a trend map computed **as of each import's date** — one tracker entry per (date, component), judged on the date's latest session; qualifies on caution/critical, or on a **sustained up-trend** ('up' on ≥ 3 consecutive import dates, `computeSustainedUp`, v0.8.6). A bad file no longer aborts the batch — it becomes a `skipped` (duplicate / already-imported / no new sessions) or failed (`!ok && !skipped`) result and the loop continues. `import:progress` events carry `fileIndex`/`fileCount` + overall batch pct. Duplicate PDFs are rejected by filename or content hash — a date file merged from several PDFs keeps every contributing hash in `source_hashes` (v0.9.2) so re-importing any of the originals is still detected; the block only applies while **every** session the PDF carries is still on disk (v0.9.3) — after a date file of that PDF was deleted, re-importing it is allowed and the session-level dedup merges back just the missing sessions |
+| `import:pdf`           | —                       | `{ ok, results[], tails, imported, skipped, failed, totalDates, totalIncidents }` — opens a **multi-select** file picker (v0.9.9) and processes the selected PDFs **sequentially** via the internal `importOnePdf()`; each `results[]` entry is `{ file, ok, tail?, files?, dates?, incidents?, skipped?, reason? }`. Per file (unchanged behaviour): spawns `import_vxp.py`, auto-detects tail from PDF (empty/undetected/ambiguous tail suffix is rejected), saves per-date JSONs, then scans for incidents with per-tail effective limits + a trend map computed **as of each import's date** — one tracker entry per (date, component), judged on the date's latest session; qualifies on caution/critical, or on an **up-trend** as of that date (v1.0.3); then the tail's latest date is resynced (`resyncLatestIncidents`). A bad file no longer aborts the batch — it becomes a `skipped` (duplicate / already-imported / no new sessions) or failed (`!ok && !skipped`) result and the loop continues. `import:progress` events carry `fileIndex`/`fileCount` + overall batch pct. Duplicate PDFs are rejected by filename or content hash — a date file merged from several PDFs keeps every contributing hash in `source_hashes` (v0.9.2) so re-importing any of the originals is still detected; the block only applies while **every** session the PDF carries is still on disk (v0.9.3) — after a date file of that PDF was deleted, re-importing it is allowed and the session-level dedup merges back just the missing sessions |
 
 ---
 
-## 7a. Trend Detection (v0.8.4, refined v0.8.5/v0.8.6)
+## 7a. Trend Detection (v0.8.4, refined v0.8.5/v0.8.6, level shifts v1.0.3)
 
 **Purpose: anticipate deteriorating components and plan ahead** — the trend
 signal is an early warning that fires on consistent growth even while a
@@ -299,6 +299,29 @@ Per component, over its session series:
    negatives → `down` (Recovering); else `stable`. The relative gate scales
    with the component's level; the absolute gate stops near-zero noise from
    tripping it.
+9. **Level-shift check** (v1.0.3): the slope fit only sees the window, so a
+   component that JUMPED to a new level and stays there (whole window above
+   the old baseline but wobbling inside it — e.g. INT GBX GMX2 0.02 for
+   months, then 0.26, 0.19, 0.03, 0.10, 0.15) used to read `stable`.
+   Baseline = median of up to **10** dates right before the window (need
+   ≥ 5). Threshold `thr = max(0.02 ips, 30% of baseline, 4× baseline MAD)`.
+   A shift is called when the window median is ≥ `thr` beyond the baseline
+   **and** ≥ 2 of the last 3 dates are too (still shifted now; one dip is
+   tolerated, a spike that already returned is not). An **up** shift
+   overrides any slope call (incl. a reversal veto) — elevated far above
+   baseline is deteriorating even while easing inside the band; a **down**
+   shift only fills in a `stable` slope call, so a component rebounding
+   toward its old level after a drop still reads `up`. Once the baseline has
+   rolled past the step (~10 dates), the new level is the norm and the slope
+   rules alone apply. `shift` / `baseline` / `level` report it, and `onset`
+   gives the date the current trend started (first date of the shift run —
+   earliest date beyond `thr` from which ≥ 60% of dates through the latest
+   are too — or the window start for a slope call).
+10. **Latest-measurement gate** (v1.0.3): the call must still hold at the most
+   recent measurement — the **last session** of the latest date (the per-date
+   median can hide a low final session). `up` needs it ≥ 0.02 ips above where
+   the trend line starts (fitted value at the window start for a slope call,
+   the baseline for a level shift); `down` mirrors it; otherwise `stable`.
 
 **As-of-date trend maps** (v0.8.5): `computeTrendMapsByDate` (renderer) and
 `computeTrendMap(importDir, asOfDate)` (main) evaluate the trend using only
@@ -315,12 +338,17 @@ Consumers (all fed from the same algorithm):
   latest-session measurements
 - `main.cjs` incident scan → tracker `entry.trend` / `entry.reason`
   (`trend` / `limit+trend`) → Dashboard ActionsWidget ↑ Deteriorating count,
-  Reports entry pills, generated report Trend column. Trend-only entries
-  additionally require the up call to hold **3 consecutive import dates**
-  (`TREND_STREAK_DATES` / `computeSustainedUp`, v0.8.6)
-- `ComponentChart` → dashed Theil-Sen segment over the fitted window (the
-  textual trend tag lives only in the Charts header pill — the on-chart badge
-  and its days-to-limit note were removed in v0.8.5)
+  Reports entry pills, generated report Trend column. A trend-only entry opens
+  whenever the date's as-of call is `up` (v1.0.3; the 3-date streak rule was
+  dropped), and the latest date is resynced at startup / after each import
+- `ComponentChart` → dashed segment for the **current** trend only, computed
+  on the full history (not the date-range filter): from where the trend
+  started to the latest date — the Theil-Sen fit over its window, or for a
+  level shift from the baseline level at the last pre-step date to the
+  window level. Hidden — together with the Charts header trend pill — when
+  the range filter excludes the latest date;
+  clipped to the first visible date when the start is filtered out. (The
+  textual trend tag lives only in the Charts header pill.)
 - `import_vxp.py` → per-session `comps[].trend` + summary (best-effort within
   the PDF's own dates; authoritative values recomputed over full history)
 
@@ -379,7 +407,7 @@ Populated limits (`[lower, caution, critical]`):
 | Tail data-package lifecycle  | ✅ Implemented    | create / check / archive / remove (move) / restore |
 | Dashboard (4 widgets)        | ✅ Implemented    | LimitsWidget: full pie; TrendsWidget: all 96 comps; Actions widget: latest 3 comps with pending actions, one row per comp — name · location · per-comp `xC\|xCr\|x↑` pending breakdown · latest pending date (v0.8.9); row click deep-links to Reports |
 | Charts + CompList            | ✅ Implemented    | Purge: comment field + success toast; Restore: multi-backup selection modal; loading state while listing backups |
-| Reports                      | ✅ Implemented    | Entry-level sign model (v0.8.7): applying an action signs that date, fully-actioned comp = Signed (no Sign Off button); Actions Pending (amber, with count badge) / Signed Actions (green) tabs filter entries + comps; Generate Report + View Reports side by side pinned at the bottom of the comp list, same plain `.btn` style and tab shape, tabs `flex:1` to match their width (v0.8.9; View Reports lists ALL generated reports for the tail, rows show the included comp names); detail-pane fallback selection respects the active tab — filter-aware 📋 empty state when nothing matches (v0.8.9); per-entry See Chart deep-link to the marked data point; `↩ FROM CHART` redirected-from marker on entries deep-linked from the chart sign modal (v0.8.9); Revert Action in Signed tab; optional report name at generation; Generate modal lists all comps with ≥ 1 actioned entry (matches the Signed tab count) — all selectable, only signed entries compiled, informational pending tag on partially-actioned rows, search box, list scrolls after 4 items (v0.8.9); signer chosen only at report generation; action pick-list user-managed, shared `ActionDropdown` component (✕ style matches signer dropdown); detail-pane entry rows sorted newest-first by date (v0.9.2) |
+| Reports                      | ✅ Implemented    | Entry-level sign model (v0.8.7): applying an action signs that date, fully-actioned comp = Signed (no Sign Off button); Actions Pending (amber, with count badge) / Signed Actions (green) tabs filter entries + comps; Generate Report + View Reports side by side pinned at the bottom of the comp list, same plain `.btn` style and tab shape, tabs `flex:1` to match their width (v0.8.9; View Reports lists ALL generated reports for the tail, rows show the included comp names); detail-pane fallback selection respects the active tab — filter-aware 📋 empty state when nothing matches (v0.8.9); per-entry See Chart deep-link to the marked data point; `↩ FROM CHART` redirected-from marker on entries deep-linked from the chart sign modal (v0.8.9); Revert Action in Signed tab; optional report name at generation; Generate modal lists all comps with ≥ 1 actioned entry (matches the Signed tab count) — all selectable, only signed entries compiled, informational pending tag on partially-actioned rows, search box, list scrolls after 4 items (v0.8.9); signer chosen only at report generation; action pick-list user-managed, shared `ActionDropdown` component (✕ style matches signer dropdown); detail-pane entry rows sorted newest-first by date (v0.9.2); component list sorted by each comp's newest entry in the active tab, and both the list and the entry rows put anything older than 30 days below an *Older than 30 days* divider (v1.0.3) |
 | Recent Imports page          | ✅ Implemented    | Header shows N Dates N Sessions; one-row entries (date · sessions · times · file · **Total: N** comps measured, v0.8.6); View File modal; select/bulk-remove |
 | ComponentChart               | ✅ Implemented    | Dual X-axis (date + "N sessions"), min-width date columns that widen so each HH:MM session tick keeps ≥ 36 px (labels never mash, v0.8.6), horizontal scroll (opens at latest data; mouse-wheel, ‹ › buttons top-right, Left/Right arrow keys), pinned always-visible Y axis (v0.8.6), limit lines, dashed trend segment (no on-chart badge since v0.8.5); header shows limit-status + trend pills; incident data points tinted by status with "!" when unactioned, tooltip shows the applied action (v0.8.7); See Chart deep-link ring-marks + centres the entry's point; clicking a pending incident point opens the Sign Action modal (pointer cursor, widened hit area, click-through hover dot, v0.8.9) |
 | Edit Limits Modal            | ✅ Implemented    | 2-step confirmation (global system limits)     |
@@ -390,7 +418,7 @@ Populated limits (`[lower, caution, critical]`):
 | VXP Import pipeline          | ✅ Implemented    | `import_vxp.py` (pdfplumber); tail auto-detected from PDF header; **multi-file select** (v0.9.9) — PDFs processed sequentially, valid ones imported and skipped/failed ones reported via `ImportResultsModal`; inline toolbar progress with per-file counter |
 | HUMS Import pipeline         | ⏸ Decoupled       | see §12                                        |
 | Export (chart/report/excel)  | ✅ Implemented (v0.9.0) | `ExportModal.jsx` + `utils/exportUtils.js` + IPC `export:pdf`/`export:excel`; report → A4 multi-page PDF (letterhead, repeating table headers); charts → static SVG PDF over a date range, comps split into Part k/N sub-range charts above 30 points; Excel via `source/export_excel.py` (openpyxl, prototype styling, limit-driven yellow/red row fills); View Reports letterhead Export button uses the same PDF path |
-| Trend detection              | ✅ Implemented (v0.8.6) | Theil-Sen over last 5 dates (min 4), median per date, residual-noise gate, residual-based reversal veto, as-of-date trend maps; `source/trend_detection.py` (reference) mirrored in `main.cjs` + `utils/trendDetection.js`; feeds all trend indicators + chart trend segment — see §7a |
+| Trend detection              | ✅ Implemented (v1.0.3) | Theil-Sen over last 5 dates (min 4), median per date, residual-noise gate, residual-based reversal veto, level-shift check vs 10-date baseline, as-of-date trend maps; `source/trend_detection.py` (reference) mirrored in `main.cjs` + `utils/trendDetection.js`; feeds all trend indicators + chart trend segment — see §7a |
 
 ---
 
@@ -684,3 +712,12 @@ Windows packaging lives in `./Package` (full guide: `Package/Instructions.md`).
   release yet (version bump = ship); NSIS via choco; built-in token, no secrets.
   The CHANGELOG is read as UTF-8 and the notes file is written BOM-less (v1.0.2 — PS 5.1
   otherwise decodes BOM-less UTF-8 as ANSI, publishing mojibake release notes).
+- **App icon (v1.0.3)**: `app/frontend/electron/icon.ico` (multi-size, generated from
+  `Resources/assets/brook_aviation_logo_round.png` — the same Brook Aviation mark as the
+  Traxxall Desktop Toolkit `.exe`). `build-package.ps1` stamps it onto the renamed
+  `HUMS VXP Monitoring.exe` with rcedit (plus ProductName / CompanyName / file + product
+  version strings); rcedit is cached in `Package\tools` (downloaded once from the
+  `electron/rcedit` v2.0.0 release — CI runners fetch it per build). The installer and
+  uninstaller use it via `MUI_ICON` / `MUI_UNICON` (`APP_ICON` in the generated
+  `version.nsh`), the desktop shortcut inherits it from the `.exe`, and `createWindow`
+  sets it as the window/taskbar icon (also in dev).

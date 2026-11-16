@@ -364,6 +364,12 @@ export default function Charts({
     return extractCompSeries(imports ?? [], selectedComp)
   }, [selectedComp, imports])
 
+  // Chart date-range filter (reported by ComponentChart). The trend pill is
+  // the CURRENT trend, so it is hidden while the range is purely historical.
+  const [chartRange, setChartRange] = useState(null)
+  const latestDate = chartPoints.length ? chartPoints[chartPoints.length - 1].date : null
+  const rangeIsHistorical = !!(chartRange && latestDate && chartRange.to < latestDate)
+
   // Incident-tracker entries for the selected component — the chart tints
   // incident data points and shows the applied action in the tooltip.
   const trackerEntries = useMemo(() => {
@@ -608,7 +614,7 @@ export default function Charts({
                   {statusLabel(compStatus[selectedComp].status).toUpperCase()}
                 </span>
               )}
-              {compStatus?.[selectedComp] && (() => {
+              {compStatus?.[selectedComp] && !rangeIsHistorical && (() => {
                 const trend = compStatus[selectedComp].trend ?? 'stable'
                 return (
                   <span className={`pill ${trend === 'up' ? 'red' : trend === 'down' ? 'amber' : 'grey'}`}>
@@ -638,6 +644,7 @@ export default function Charts({
                   trackerEntries={trackerEntries}
                   highlight={highlight}
                   onIncidentClick={handleIncidentClick}
+                  onRangeChange={setChartRange}
                 />
               </div>
             )}

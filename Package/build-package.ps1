@@ -72,12 +72,43 @@ Copy-Item (Join-Path $FrontendDir 'package.json')          $AppDir
 Copy-Item (Join-Path $FrontendDir 'electron\main.cjs')     (Join-Path $AppDir 'electron')
 Copy-Item (Join-Path $FrontendDir 'electron\preload.cjs')  (Join-Path $AppDir 'electron')
 Copy-Item (Join-Path $FrontendDir 'electron\updater.cjs')  (Join-Path $AppDir 'electron')
+Copy-Item (Join-Path $FrontendDir 'electron\icon.ico')     (Join-Path $AppDir 'electron')
 Copy-Item $DistDir (Join-Path $AppDir 'dist') -Recurse
 
 # Python scripts → resources\source (main.cjs spawns them from there when packaged)
 $StagedSource = Join-Path $StagingDir 'resources\source'
 New-Item -ItemType Directory -Force $StagedSource | Out-Null
 Copy-Item "$SourceDir\*.py" $StagedSource
+
+# ── 3a. App icon on the .exe ──────────────────────────────────────────────────
+# The renamed electron.exe still carries Electron's icon; stamp the Brook
+# Aviation round logo (app\frontend\electron\icon.ico, generated from
+# Resources\assets\brook_aviation_logo_round.png — the same mark as the
+# Traxxall Desktop Toolkit .exe) plus product/version strings with rcedit.
+# rcedit is cached in Package\tools; downloaded once from electron/rcedit.
+$IconIco = Join-Path $FrontendDir 'electron\icon.ico'
+$RcEdit  = Join-Path $ToolsDir 'rcedit-x64.exe'
+if (-not (Test-Path $RcEdit)) {
+    Step 'Downloading rcedit (one-time, ~1 MB)'
+    New-Item -ItemType Directory -Force $ToolsDir | Out-Null
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    curl.exe -sL -o $RcEdit 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe'
+    if (-not (Test-Path $RcEdit) -or (Get-Item $RcEdit).Length -lt 100KB) {
+        Remove-Item $RcEdit -ErrorAction SilentlyContinue
+        throw 'rcedit download failed'
+    }
+}
+Step 'Stamping app icon + version info onto the .exe'
+& $RcEdit (Join-Path $StagingDir 'HUMS VXP Monitoring.exe') `
+    --set-icon $IconIco `
+    --set-version-string 'ProductName' 'HUMS VXP Monitoring' `
+    --set-version-string 'FileDescription' 'HUMS VXP Monitoring' `
+    --set-version-string 'CompanyName' 'Brook Aviation' `
+    --set-version-string 'OriginalFilename' 'HUMS VXP Monitoring.exe' `
+    --set-version-string 'InternalName' 'HUMS VXP Monitoring' `
+    --set-file-version $Version `
+    --set-product-version $Version
+if ($LASTEXITCODE -ne 0) { throw 'rcedit failed to stamp the .exe icon' }
 
 # ── 3b. Bundled Python runtime ────────────────────────────────────────────────
 # Official embeddable Python + pdfplumber/openpyxl wheels staged into
@@ -199,6 +230,7 @@ Step 'Compiling installer'
 !define APP_VERSION "$Version"
 !define STAGING_DIR "$StagingDir"
 !define SIDEBAR_BMP "$SidebarBmp"
+!define APP_ICON "$IconIco"
 "@ | Out-File (Join-Path $BuildDir 'version.nsh') -Encoding utf8
 
 & $MakeNsis /V2 (Join-Path $PackageDir 'installer.nsi')

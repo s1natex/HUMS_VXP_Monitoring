@@ -26,7 +26,7 @@
 Unicode true
 ManifestDPIAware true
 !include "MUI2.nsh"
-!include "build\version.nsh"        ; defines APP_VERSION and STAGING_DIR
+!include "build\version.nsh"        ; defines APP_VERSION, STAGING_DIR, SIDEBAR_BMP, APP_ICON
 
 Name "HUMS VXP Monitoring"
 OutFile "HUMS VXP Monitoring Install.exe"
@@ -39,6 +39,9 @@ SetFont "Segoe UI" 9
 ; ── Modern UI pages ───────────────────────────────────────────────────────────
 ; Sidebar bitmap is generated per-build by build-package.ps1 (app-themed gradient).
 !define MUI_WELCOMEFINISHPAGE_BITMAP "${SIDEBAR_BMP}"
+; Installer + uninstaller icon: the same Brook Aviation mark as the app .exe.
+!define MUI_ICON   "${APP_ICON}"
+!define MUI_UNICON "${APP_ICON}"
 !define MUI_WELCOMEPAGE_TITLE "HUMS VXP Monitoring ${APP_VERSION}"
 !define MUI_WELCOMEPAGE_TEXT "This wizard installs (or updates) HUMS VXP Monitoring on your computer.$\r$\n$\r$\nUpdating an existing installation replaces only the application files — your data folder is never touched.$\r$\n$\r$\nClick Next to continue."
 !insertmacro MUI_PAGE_WELCOME

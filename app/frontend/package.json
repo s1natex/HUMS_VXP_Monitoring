@@ -1,6 +1,6 @@
 {
   "name": "hums-vxp-monitoring",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "updateRepo": "s1natex/HUMS_VXP_Monitoring",
   "main": "electron/main.cjs",

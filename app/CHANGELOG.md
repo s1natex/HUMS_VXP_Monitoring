@@ -6,6 +6,55 @@ Format: `[version] — date — platform`
 
 ---
 
+## [1.0.3] — 2026-11-16 — React/Electron
+
+Trend detection now catches **step changes** — components that jump to a new level and
+stay there — and the `.exe` carries the Brook Aviation logo.
+
+### Fixed
+- **Missed up/down trends on level shifts** (`source/trend_detection.py`, mirrored in
+  `electron/main.cjs` + `src/utils/trendDetection.js`): the Theil-Sen fit only sees the
+  last 5 dates, so a component that jumped and then wobbled inside its new band read
+  *Stable* — e.g. on 4X-BHT, INT GBX GMX2 | IGB V sat at ~0.02 ips until 01-11-2026,
+  then 0.26 / 0.19 / 0.03 / 0.10 / 0.15 / 0.14 / 0.10, and its RMS jumped from ~0.02 to
+  16–65. New level-shift check: window median vs the median of the 10 dates before the
+  window, threshold `max(0.02 ips, 30% of baseline, 4× baseline MAD)`, and ≥ 2 of the
+  last 3 dates must still be shifted. An up shift overrides any slope call (including a
+  reversal veto); a down shift only replaces *Stable*. Newly detected on 4X-BHT:
+  INT GBX GMX2 (+ RMS), HELICAL GMX2 (+ RMS, XMSNF/XMSNL), TR GBX GMX2 (+ RMS),
+  ENGINE BB RMS (ENG1C/ENG2C), T/R DS 2P | XMSNL, PYLON DS 2P, TPDS SO1 → up;
+  GEN/AC DR GM RMS | XMSNL → down. Trends are recomputed live, so existing imports pick
+  this up without re-importing.
+- **Uptrends whose latest point is not above the start** (same three files): the per-date
+  median hid a low final session — e.g. GEN/AC DR GM RMS | XMSNF started at 0.038 and its
+  last 15-11 session read 0.018, yet showed *Deteriorating*. New latest-measurement gate:
+  the last session of the latest date must sit ≥ 0.02 ips beyond where the trend line
+  starts (fit start, or the baseline for a level shift), otherwise *Stable*.
+- **Uptrends without a report prompt** (`electron/main.cjs`): trend-only incidents
+  required the up call to hold 3 consecutive import dates, and were only written at import
+  time — so most current uptrends had no pending action. Now every date whose as-of trend
+  is up gets one, and each tail's latest import date is resynced at startup and after
+  every import (`resyncLatestIncidents`): missing prompts are added, un-actioned prompts
+  that no longer qualify are removed. Signed entries and older dates are never touched.
+- **Trend pill on historical ranges** (`Charts`): the header trend pill is hidden while
+  the chart's date range excludes the latest date, like the trend line.
+
+### Changed
+- **Reports ordering** (`Reports`): in both Actions Pending and Signed Actions, components
+  are sorted by their newest entry in that tab, and anything older than 30 days sits
+  below an *Older than 30 days* divider — in the component list and the entry rows.
+- **Chart trend line shows the current trend only** (`ComponentChart`): computed on the
+  full history instead of the date-range filter, drawn from where the trend started
+  (new `onset` field — the first date of a level shift, or the fit window's start) to
+  the latest date, and hidden when the range filter excludes the latest date.
+- **App icon** (`Package\build-package.ps1`, `installer.nsi`, `main.cjs`): the Brook
+  Aviation round logo (same mark as the Traxxall Desktop Toolkit `.exe`) is stamped onto
+  `HUMS VXP Monitoring.exe` with rcedit (plus product/version strings), and used for the
+  installer, uninstaller, desktop shortcut and window/taskbar icon. Source:
+  `app/frontend/electron/icon.ico`. rcedit is cached in `Package\tools` (downloaded once).
+
+---
+
 ## [1.0.2] — 2026-08-06 — React/Electron
 
 Reliability pass over the v1.0.1 auto-update release: the updater now recovers when the

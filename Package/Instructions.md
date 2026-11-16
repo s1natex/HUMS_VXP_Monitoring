@@ -100,9 +100,16 @@ shortcut (created only if ticked).
 ## What the build script does
 
 Rebuilds the renderer with Vite, stages a self-contained app (Electron runtime
-+ app code + Python scripts) into `Package\build\staging`, and compiles the
-installer with a portable NSIS it downloads into `Package\tools` on first run
-(no admin rights needed). No electron-builder involved.
++ app code + Python scripts) into `Package\build\staging`, stamps the Brook
+Aviation icon and version info onto `HUMS VXP Monitoring.exe` with rcedit, and
+compiles the installer with a portable NSIS it downloads into `Package\tools`
+on first run (no admin rights needed). No electron-builder involved.
+
+The icon is `app\frontend\electron\icon.ico` (tracked in git, generated from
+`Resources\assets\brook_aviation_logo_round.png`). It is used for the app
+`.exe`, the installer/uninstaller, the desktop shortcut and the app window.
+rcedit (`rcedit-x64.exe`) is downloaded once into `Package\tools` from the
+`electron/rcedit` GitHub release.
 
 ## Requirements on the user's PC
 
@@ -149,7 +156,6 @@ a minute by the apply script.
 | `publish-release.ps1`| Builds + publishes the installer as a GitHub Release (auto-update source). |
 | `installer.nsi`      | NSIS source. Owns the install layout and the data-safety rule. |
 | `build\`             | Intermediates (staged app, generated `version.nsh`). Ignored.  |
-| `tools\`             | Auto-downloaded portable NSIS. Ignored.                        |
+| `tools\`             | Auto-downloaded portable NSIS and rcedit. Ignored.             |
 
-Possible later polish: a proper `.ico` app icon (the exe currently shows the
-stock Electron icon), and code-signing to avoid SmartScreen warnings.
+Possible later polish: code-signing to avoid SmartScreen warnings.

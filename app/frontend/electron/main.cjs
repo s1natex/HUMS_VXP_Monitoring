@@ -93,7 +93,11 @@ function bySessionStart(a, b) {
 // least TREND_MIN_DATES), gate the projected change on relative + absolute
 // thresholds and on the fit's residual noise, require Mann-Kendall
 // consistency (|tau| ≥ TREND_MIN_TAU), and veto the call when the last date
-// landed sharply off the fitted line against the trend.
+// landed sharply off the fitted line against the trend. Then the level-shift
+// check: window median + last date vs the baseline dates right before the
+// window — an UP step overrides any slope call, a DOWN step only fills in
+// 'stable'. Finally the latest-measurement gate: the newest session must sit
+// ≥ TREND_ABS_MIN_DELTA beyond where the trend line starts.
 const TREND_WINDOW        = 5     // analyse the last N import dates
 const TREND_MIN_DATES     = 4     // fewer dates → 'stable' (insufficient data)
 const TREND_REL_THRESHOLD = 0.15  // |projected change| ≥ 15% of window mean
@@ -101,10 +105,11 @@ const TREND_ABS_MIN_DELTA = 0.02  // …and ≥ 0.02 ips, so near-zero noise nev
 const TREND_MIN_TAU       = 0.5   // Mann-Kendall: |tau| ≥ 0.5 for a trend call
 const TREND_REVERSAL_VETO = 0.35  // last date ≥ 35% of |delta| below the fit cancels
 const TREND_NOISE_GATE    = 2.0   // …and |delta| ≥ 2× the residual MAD (fit noise)
-// Incident scanning only: a trend-triggered action entry requires the 'up'
-// classification to hold on this many CONSECUTIVE import dates (as-of-date
-// maps). Limit hits (caution/alert) always qualify regardless of trend.
-const TREND_STREAK_DATES  = 3
+const SHIFT_BASELINE      = 10    // baseline = up to N dates right before the window
+const SHIFT_MIN_BASELINE  = 5     // fewer baseline dates → no level-shift check
+const SHIFT_REL           = 0.30  // step ≥ 30% of the baseline level…
+const SHIFT_NOISE_GATE    = 4.0   // …and ≥ 4× the baseline MAD (its own scatter)
+const SHIFT_RECENT        = 3     // 'still shifted now': ≥ 2 of the last 3 dates beyond thr
 
 function median(values) {
   const s = [...values].sort((a, b) => a - b)
@@ -154,12 +159,49 @@ function kendallTau(values) {
   return (c - d) / (n * (n - 1) / 2)
 }
 
-// dailyDates / dailyValues: per-date aggregates in chronological order.
-function classifyTrend(dailyDates, dailyValues) {
-  if (dailyValues.length < TREND_MIN_DATES) return 'stable'
-  const dates = dailyDates.slice(-TREND_WINDOW)
-  const vals  = dailyValues.slice(-TREND_WINDOW)
+// Level shift of the window vs the baseline just before it → null | 'up' |
+// 'down' (mirrors trendDetection.js detectLevelShift).
+function levelShift(priorValues, windowValues) {
+  const base = priorValues.slice(-SHIFT_BASELINE)
+  if (base.length < SHIFT_MIN_BASELINE || !windowValues.length) return { shift: null, baseline: null }
+  const baseline = median(base)
+  const level = median(windowValues)
+  const thr = Math.max(TREND_ABS_MIN_DELTA, SHIFT_REL * Math.abs(baseline),
+                       SHIFT_NOISE_GATE * medianAbsDev(base))
+  const recent = windowValues.slice(-SHIFT_RECENT)
+  const need = Math.floor(recent.length / 2) + 1          // majority of the last dates
+  const upHits   = recent.filter(v => v - baseline >= thr).length
+  const downHits = recent.filter(v => baseline - v >= thr).length
+  if (level - baseline >= thr && upHits >= need) return { shift: 'up', baseline }
+  if (baseline - level >= thr && downHits >= need) return { shift: 'down', baseline }
+  return { shift: null, baseline }
+}
 
+// dailyDates / dailyValues: per-date aggregates in chronological order;
+// current: the most recent measurement (last session of the latest date).
+// Slope classification, then the level-shift override (an UP shift wins over
+// any slope call, a DOWN shift only replaces 'stable'), then the
+// latest-measurement gate against where the trend line starts.
+function classifyTrend(dailyDates, dailyValues, current = null) {
+  if (dailyValues.length < TREND_MIN_DATES) return 'stable'
+  const vals = dailyValues.slice(-TREND_WINDOW)
+  const { shift, baseline } = levelShift(dailyValues.slice(0, -vals.length), vals)
+  const fit = classifySlope(dailyDates.slice(-TREND_WINDOW), vals)
+  let trend = fit.trend, start = fit.intercept
+  if (shift === 'up' || (shift === 'down' && trend === 'stable')) {
+    trend = shift
+    start = baseline
+  }
+  if (trend !== 'stable' && current != null) {
+    if ((trend === 'up'   && current - start < TREND_ABS_MIN_DELTA) ||
+        (trend === 'down' && start - current < TREND_ABS_MIN_DELTA)) return 'stable'
+  }
+  return trend
+}
+
+// Slope-only classification of the window (Theil-Sen + gates + veto) →
+// { trend, intercept } (intercept = fitted value at the window's first date).
+function classifySlope(dates, vals) {
   const days = dates.map(dayNumber)
   const xs = days.every(d => d !== null)
     ? days.map(d => d - days[0])
@@ -175,7 +217,7 @@ function classifyTrend(dailyDates, dailyValues) {
   // (residual MAD) — a "trend" smaller than the series' own noise never
   // classifies (mirrors trendDetection.js / trend_detection.py).
   const noise = medianAbsDev(vals.map((v, i) => v - (intercept + slope * xs[i])))
-  if (Math.abs(delta) < TREND_NOISE_GATE * noise) return 'stable'
+  if (Math.abs(delta) < TREND_NOISE_GATE * noise) return { trend: 'stable', intercept }
 
   // Sharp-reversal veto on the last date's residual from the fit (not the
   // step from the previous date), so an outlier spike one date earlier can't
@@ -183,13 +225,13 @@ function classifyTrend(dailyDates, dailyValues) {
   const lastResid = vals[vals.length - 1] - (intercept + slope * xs[xs.length - 1])
   const vetoSize = Math.max(TREND_ABS_MIN_DELTA, TREND_REVERSAL_VETO * Math.abs(delta))
 
+  let trend = 'stable'
   if (delta >= TREND_ABS_MIN_DELTA && rel >= TREND_REL_THRESHOLD && tau >= TREND_MIN_TAU) {
-    return lastResid <= -vetoSize ? 'stable' : 'up'
+    trend = lastResid <= -vetoSize ? 'stable' : 'up'
+  } else if (delta <= -TREND_ABS_MIN_DELTA && rel <= -TREND_REL_THRESHOLD && tau <= -TREND_MIN_TAU) {
+    trend = lastResid >= vetoSize ? 'stable' : 'down'
   }
-  if (delta <= -TREND_ABS_MIN_DELTA && rel <= -TREND_REL_THRESHOLD && tau <= -TREND_MIN_TAU) {
-    return lastResid >= vetoSize ? 'stable' : 'down'
-  }
-  return 'stable'
+  return { trend, intercept }
 }
 
 // Reads and parses every import file of a tail once — computeTrendMap callers
@@ -212,6 +254,7 @@ function loadImportFiles(importDir) {
 // trend AS OF that date.
 function computeTrendMap(importObjects, asOfDate = null) {
   const byComp = {}   // compKey → { 'YYYY-MM-DD' → [avg_meas…] }
+  const latest = {}   // compKey → { date, time, value } — most recent session
   for (const imp of importObjects) {
     if ((imp?.date ?? '').split('-').length !== 3) continue   // DD-MM-YYYY
     const sortable = toSortableDate(imp.date)
@@ -221,35 +264,57 @@ function computeTrendMap(importObjects, asOfDate = null) {
         if (typeof meas?.avg_meas !== 'number') continue
         const dates = byComp[key] ?? (byComp[key] = {})
         ;(dates[sortable] ?? (dates[sortable] = [])).push(meas.avg_meas)
+        const t = session.started_at ?? '', cur = latest[key]
+        if (!cur || sortable > cur.date || (sortable === cur.date && t >= cur.time)) {
+          latest[key] = { date: sortable, time: t, value: meas.avg_meas }
+        }
       }
     }
   }
   const map = {}
   for (const [key, dates] of Object.entries(byComp)) {
     const sorted = Object.keys(dates).sort()
-    map[key] = classifyTrend(sorted, sorted.map(d => median(dates[d])))
+    map[key] = classifyTrend(sorted, sorted.map(d => median(dates[d])), latest[key]?.value ?? null)
   }
   return map
 }
 
-// Comp keys whose trend is 'up' on asOfDate AND on the TREND_STREAK_DATES − 1
-// import dates before it — i.e. the up-trend has held at least
-// TREND_STREAK_DATES import dates in a row. Feeds the trend criterion of
-// scanImportForIncidents; mapFor caches computeTrendMap per as-of date so a
-// multi-date PDF import doesn't recompute the same maps.
-function computeSustainedUp(importObjects, asOfDate, mapFor) {
-  const allDates = [...new Set(
-    importObjects.map(i => toSortableDate(i.date)).filter(d => d.split('-').length === 3)
-  )].sort()
-  const idx = allDates.indexOf(asOfDate)
-  const sustained = new Set()
-  if (idx < TREND_STREAK_DATES - 1) return sustained
-  const streakDates = allDates.slice(idx - (TREND_STREAK_DATES - 1), idx + 1)
-  const maps = streakDates.map(mapFor)
-  for (const [key, trend] of Object.entries(maps[maps.length - 1])) {
-    if (trend === 'up' && maps.every(m => m[key] === 'up')) sustained.add(key)
+// Re-evaluates the incident entries of a tail's LATEST import date against the
+// current trend + limit rules, so the Reports prompts always match the trends
+// the UI shows (e.g. after a detection change, or when a backfill import
+// shifts the latest trend). Adds missing pending entries, refreshes/removes
+// un-actioned ones; actioned (signed) entries and older dates are untouched.
+// Returns the number of entries created.
+function resyncLatestIncidents(tail, fleetItem = null) {
+  const allImports = loadImportFiles(path.join(DATA_ROOT, tail, 'imports'))
+  const dated = allImports.filter(i => (i?.date ?? '').split('-').length === 3)
+  if (!dated.length) return 0
+  const latest = dated.reduce((a, b) => (toSortableDate(b.date) > toSortableDate(a.date) ? b : a))
+  const limits = getEffectiveLimits(tail, fleetItem ?? findFleetItem(tail))
+  const trendMap = computeTrendMap(allImports, toSortableDate(latest.date))
+  return scanImportForIncidents(tail, latest, limits, trendMap, { resync: true })
+}
+
+function findFleetItem(tail) {
+  const fleet = readJson(path.join(GLOBAL_DIR, 'tail_number_tags_vxp_hums_index.json'), { tails: [] })
+  return (fleet.tails ?? []).find(t => t.tail === tail) ?? null
+}
+
+// Startup pass: resync every tail's latest-date incidents.
+function resyncAllLatestIncidents() {
+  let tails = []
+  try {
+    tails = fs.readdirSync(DATA_ROOT, { withFileTypes: true })
+      .filter(d => d.isDirectory() && isValidTail(d.name))
+      .map(d => d.name)
+  } catch {
+    return
   }
-  return sustained
+  for (const tail of tails) {
+    try { resyncLatestIncidents(tail) } catch (e) {
+      console.warn(`Incident resync failed for ${tail}:`, e.message)
+    }
+  }
 }
 
 function readJson(filePath, fallback = null) {
@@ -491,12 +556,13 @@ ipcMain.handle('reports:save-component', (_e, tail, compKey, data) => {
 // ('critical' is the legacy alias of 'alert').
 const LIMIT_SEVERITY = { ok: 0, caution: 1, alert: 2, critical: 2 }
 
-// Scans a newly-saved import for caution/critical limit hits or a SUSTAINED
-// up-trend (classified 'up' on at least TREND_STREAK_DATES consecutive import
-// dates — a single up call is not enough to demand an action), keeping ONE
+// Scans a newly-saved import for caution/critical limit hits or an up-trend
+// (the import date's as-of trend is 'up' — the same call every trend
+// indicator in the UI shows), keeping ONE
 // entry per (date, component) in that component's tracker — judged on the
 // date's chronologically LATEST session, not every session.
-// Re-scanning the same session is a no-op. When a newer session arrives for
+// Re-scanning the same session is a no-op (unless opts.resync — see
+// resyncLatestIncidents — which re-judges it). When a newer session arrives for
 // an already-recorded date:
 //   - un-actioned entry + still qualifying → refreshed in place (pending)
 //   - un-actioned entry + latest session clean → entry removed (the date no
@@ -506,7 +572,7 @@ const LIMIT_SEVERITY = { ok: 0, caution: 1, alert: 2, critical: 2 }
 //     action (preserved as prev_action) so the worse reading returns to
 //     pending — under the entry-level sign model an entry counts as signed
 //     exactly when it has an action, so clearing it is what forces re-review.
-function scanImportForIncidents(tail, imp, limits, trendMap = {}, sustainedUp = new Set()) {
+function scanImportForIncidents(tail, imp, limits, trendMap = {}, { resync = false } = {}) {
   const reportDir = compReportsDir(tail)
   fs.mkdirSync(reportDir, { recursive: true })
   const now = new Date().toISOString()
@@ -528,9 +594,7 @@ function scanImportForIncidents(tail, imp, limits, trendMap = {}, sustainedUp = 
     // stored on the entry as a snapshot of why the incident was recorded.
     const trend = trendMap[compKey] ?? 'stable'
     const limitHit  = limitStatus === 'caution' || limitStatus === 'alert'
-    // Trend alone only opens an incident when the up call has held for
-    // TREND_STREAK_DATES consecutive import dates (computed by the caller).
-    const upTrend   = sustainedUp.has(compKey)
+    const upTrend   = trend === 'up'
     const qualifies = limitHit || upTrend
 
     const file = path.join(reportDir, `${sanitizeCompKey(compKey)}.json`)
@@ -567,7 +631,7 @@ function scanImportForIncidents(tail, imp, limits, trendMap = {}, sustainedUp = 
       continue
     }
 
-    if (existing.session_id === sessionId) continue   // same session — nothing new
+    if (existing.session_id === sessionId && !resync) continue   // same session — nothing new
 
     if (!existing.action) {
       if (qualifies) {
@@ -1246,14 +1310,13 @@ ipcMain.handle('import:pdf', async (event) => {
           return
         }
 
-        // ── Scan for incidents (caution/critical/sustained up-trend) ──────────
+        // ── Scan for incidents (caution/critical/up-trend) ────────────────────
         // Appends one entry per (date, component) — latest session of the date —
         // to each affected component's tracker JSON. Trend maps are computed
         // AFTER the new files are saved (so they include this PDF) and AS OF
         // each import's own date, so older dates in a multi-date PDF get the
-        // trend the fleet would have seen on that date. A trend-only incident
-        // additionally needs the up call to have held TREND_STREAK_DATES
-        // import dates in a row (computeSustainedUp).
+        // trend the fleet would have seen on that date. Then the tail's latest
+        // date is resynced, since a backfill PDF can change the latest trend.
         let incidentsCreated = 0
         try {
           const limits = getEffectiveLimits(tail, fleetItem)
@@ -1262,14 +1325,14 @@ ipcMain.handle('import:pdf', async (event) => {
           const mapFor = d => (mapCache[d] ??= computeTrendMap(allImports, d))
           for (const imp of importObjects) {
             const asOf = toSortableDate(imp.date)
-            const sustainedUp = computeSustainedUp(allImports, asOf, mapFor)
             // Scan the SAVED import for this date (merged with any pre-existing
             // sessions), not the raw PDF object — "the date's latest session"
             // must be judged over the whole merged day, or a backfill PDF that
             // adds an EARLIER session would overwrite entries with older data.
             const saved = allImports.find(i => i.date === imp.date) ?? imp
-            incidentsCreated += scanImportForIncidents(tail, saved, limits, mapFor(asOf), sustainedUp)
+            incidentsCreated += scanImportForIncidents(tail, saved, limits, mapFor(asOf))
           }
+          incidentsCreated += resyncLatestIncidents(tail, fleetItem)
         } catch (e) {
           console.warn('Incident scan failed:', e.message)
         }
@@ -1429,6 +1492,7 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 680,
     backgroundColor: '#1e2228',
+    icon: path.join(__dirname, 'icon.ico'),   // taskbar/title-bar icon (dev runs too)
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -1492,6 +1556,7 @@ function ensureDataSeed() {
 app.whenReady().then(() => {
   ensureDataSeed()       // fresh install: create baseline data files (additive only)
   migrateAllTrackers()   // collapse legacy per-session tracker entries (≤ v0.8.4)
+  resyncAllLatestIncidents()   // latest-date prompts follow the current trend rules
   createWindow()
   initUpdater()          // startup GitHub-release check → auto-download → restart prompt
 })
