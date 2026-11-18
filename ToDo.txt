@@ -1,0 +1,7 @@
+- Complete and live test with Yunis the v1.0.3 deployment
+    - The Update is applied v1.0.3 + logo(user side)
+    - Data persists after update(user side)
+    - v1.0.3 update, logo and data persists after update and restart(user side)
+* Verify the current update before pushing to remote repo
+* Use v1.0.4 not v1.0.3
+* Add->Commit->Push->Deploy

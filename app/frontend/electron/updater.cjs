@@ -6,12 +6,12 @@
 //                           compare tag (vX.Y.Z) against app.getVersion()
 //   3. download           — newer version's installer asset (.exe) is streamed to
 //                           the OS temp folder with progress events
-//   4. apply              — on user confirmation ("Restart & Update"): a detached
-//                           cmd script waits for the app to exit, runs the
-//                           installer silently (/S /D=<install dir> — exit code 5
-//                           = still locked → retry), relaunches the app, and
-//                           cleans up after itself. data\ is untouched by design
-//                           (see Package\installer.nsi).
+//   4. apply              — on user confirmation ("Restart & Update"): the installer
+//                           is spawned detached (/S /RELAUNCH /D=<install dir>),
+//                           the app quits, the installer waits for the exe to
+//                           unlock, installs and relaunches. data\ is untouched by
+//                           design (see Package\installer.nsi). The downloaded
+//                           installer is deleted on the next start.
 //
 // UPDATE_REPO comes from package.json "updateRepo" ("owner/repo"). Empty string
 // disables the whole feature (status 'disabled'). The repo must be PUBLIC —
@@ -207,10 +207,16 @@ function downloadUpdate({ manual = false } = {}) {
   })
 }
 
-// Writes and launches the detached apply script, then quits the app. The
-// installer's silent mode exits with code 5 while the app's exe is still
-// locked, so the script retries once per second (up to a minute) — that covers
-// both the app still shutting down and transient locks (antivirus, OneDrive).
+// Launches the downloaded installer directly (detached), then quits the app.
+// The installer itself waits for the exe to unlock (silent mode retries for up
+// to a minute), installs into installDir and — because of /RELAUNCH — restarts
+// the app from there.
+//
+// No cmd script on purpose (≤ v1.0.3 used one): cmd reads .cmd files in the
+// console code page, so a non-ASCII install path (Hebrew username, localized
+// OneDrive Desktop) was garbled — the installer then created a brand-new folder
+// at the garbled path and the "updated" app started there with an empty data\.
+// spawn() hands the command line to CreateProcessW as UTF-16, so paths survive.
 function installUpdate() {
   if (!app.isPackaged) {
     return { ok: false, error: 'Updates can only be installed in the packaged app (dev mode).' }
@@ -219,34 +225,44 @@ function installUpdate() {
     return { ok: false, error: 'No downloaded update found.' }
   }
   const installDir = path.dirname(process.execPath)
-  const batPath = path.join(app.getPath('temp'), 'HUMS_VXP_ApplyUpdate.cmd')
-  // /D= must be unquoted and last — NSIS takes everything after it, spaces included.
-  const bat = [
-    '@echo off',
-    'setlocal EnableDelayedExpansion',
-    'set RETRIES=60',
-    ':try',
-    'ping -n 2 127.0.0.1 >nul',
-    `"${downloadedPath}" /S /D=${installDir}`,
-    'if !errorlevel! equ 5 (',
-    '  set /a RETRIES-=1',
-    '  if !RETRIES! gtr 0 goto try',
-    ')',
-    `start "" "${process.execPath}"`,
-    `del "${downloadedPath}"`,
-    '(goto) 2>nul & del "%~f0"',
-    '',
-  ].join('\r\n')
+  // NSIS parses /D= specially: it must be the LAST argument and UNQUOTED (it
+  // takes everything after it, spaces included) — so the command line is built
+  // verbatim instead of letting Node quote each argument. argv0 is quoted by
+  // hand for the same reason (temp paths can contain spaces).
+  return new Promise((resolve) => {
+    let child
+    try {
+      child = spawn(downloadedPath, ['/S', '/RELAUNCH', `/D=${installDir}`], {
+        argv0: `"${downloadedPath}"`,
+        windowsVerbatimArguments: true,
+        detached: true,
+        stdio: 'ignore',
+      })
+    } catch (e) {
+      resolve({ ok: false, error: e.message })
+      return
+    }
+    child.once('error', (e) => resolve({ ok: false, error: e.message }))
+    child.once('spawn', () => {
+      child.unref()
+      // Let the invoke response reach the renderer before tearing everything down.
+      setTimeout(() => app.quit(), 200)
+      resolve({ ok: true })
+    })
+  })
+}
 
+// The installer cannot delete itself, so leftovers from the previous update
+// (and the ≤ v1.0.3 apply script) are swept on the next start.
+function cleanupOldDownloads() {
   try {
-    fs.writeFileSync(batPath, bat)
-    spawn('cmd.exe', ['/c', batPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
-  } catch (e) {
-    return { ok: false, error: e.message }
-  }
-  // Let the invoke response reach the renderer before tearing everything down.
-  setTimeout(() => app.quit(), 200)
-  return { ok: true }
+    const tmp = app.getPath('temp')
+    for (const f of fs.readdirSync(tmp)) {
+      if (/^HUMS_VXP_Update_.*\.exe$/i.test(f) || f === 'HUMS_VXP_ApplyUpdate.cmd') {
+        try { fs.unlinkSync(path.join(tmp, f)) } catch {}   // may still be in use — next start
+      }
+    }
+  } catch {}
 }
 
 function initUpdater() {
@@ -258,6 +274,7 @@ function initUpdater() {
   // Startup check: delayed so it never competes with window creation / data
   // seeding, and auto-downloads so the user is only prompted once the update
   // is actually ready to apply ("Restart & Update").
+  if (app.isPackaged) cleanupOldDownloads()
   if (UPDATE_REPO) {
     setTimeout(() => { checkForUpdates({ autoDownload: true }) }, 3000)
   }

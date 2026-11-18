@@ -20,7 +20,12 @@ Silent install / update (used by the in-app auto-updater):
 ```
 "HUMS VXP Monitoring Install.exe" /S                      # silent, default folder (Desktop)
 "HUMS VXP Monitoring Install.exe" /S /D=C:\custom\dir     # silent, custom target (must be last arg, no quotes)
+"HUMS VXP Monitoring Install.exe" /S /RELAUNCH /D=C:\dir  # what the in-app updater runs: also restarts the app
 ```
+
+Silent mode waits up to 60 s for a running app to exit, then exits with code 5.
+The install folder is recorded in `HKCU\Software\HUMS VXP Monitoring` → `InstallDir`
+(the interactive installer pre-selects it).
 
 ## Instructions
 
@@ -135,10 +140,20 @@ A few seconds after every startup:
    `vX.Y.Z` against the running version.
 3. **Download** — a newer release's `.exe` asset is streamed to the OS temp
    folder with a progress banner in the app (bottom-right).
-4. **Apply** — the banner prompts "Restart & Update". On confirm the app quits
-   and a detached script runs the installer silently (`/S /D=<install dir>`,
-   retrying while exit code 5 says the exe is still locked), then relaunches
-   the app. `data\` is untouched — same structural guarantee as any update.
+4. **Apply** — the banner prompts "Restart & Update". On confirm the installer
+   is started directly (`/S /RELAUNCH /D=<install dir>`) and the app quits; the
+   installer waits for the exe to unlock, installs, and relaunches the app.
+   `data\` is untouched — same structural guarantee as any update. The
+   downloaded installer is removed from temp on the next start.
+
+   No cmd script is involved (v1.0.4). Up to v1.0.3 a `.cmd` script applied the
+   update, and cmd garbled non-ASCII install paths — the installer created a
+   second app copy at the garbled path (empty `data\`) and started that.
+   The v1.0.4+ installer repairs this when it is applied by the old script:
+   silent run without `/RELAUNCH`, target has no imports, and the real install
+   is known (registry, or `<Desktop>\HUMS VXP Monitoring`) → it installs into
+   the real folder and turns the stray copy into a launcher for it
+   (`Package\redirect\`, only its `resources\app` is replaced).
 
 The version label in the bottom bar is clickable for a manual check.
 Check/download also work in dev mode; applying is packaged-only.
@@ -146,7 +161,7 @@ Check/download also work in dev mode; applying is packaged-only.
 Failure behaviour: offline or API errors on the startup check are silent
 (manual checks toast the reason); a failed/truncated download shows Retry and
 never reaches the installer; a locked app at install time is retried for up to
-a minute by the apply script.
+a minute by the installer itself.
 
 ## Files
 
@@ -155,6 +170,7 @@ a minute by the apply script.
 | `build-package.ps1`  | One-command build: renderer → staging → compiled installer.    |
 | `publish-release.ps1`| Builds + publishes the installer as a GitHub Release (auto-update source). |
 | `installer.nsi`      | NSIS source. Owns the install layout and the data-safety rule. |
+| `redirect\`          | Tiny launcher the installer drops into a stray (≤ v1.0.3 mis-targeted) app copy. |
 | `build\`             | Intermediates (staged app, generated `version.nsh`). Ignored.  |
 | `tools\`             | Auto-downloaded portable NSIS and rcedit. Ignored.             |
 

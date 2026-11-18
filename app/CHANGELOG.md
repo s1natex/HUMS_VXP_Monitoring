@@ -6,6 +6,32 @@ Format: `[version] — date — platform`
 
 ---
 
+## [1.0.4] — 2026-11-16 — React/Electron
+
+Updates now install into the existing app folder. This release also repairs machines where the
+1.0.3 update ended up in a separate folder.
+
+### Fixed
+- **Update installed into a second folder, without the user's data** (`electron/updater.cjs`,
+  `Package/installer.nsi`): the update was applied through a cmd script, and cmd garbles
+  non-ASCII characters in the install path (e.g. a Hebrew user name or a localized OneDrive
+  Desktop). The installer then created a new app folder at the garbled path and started it —
+  the "updated" app showed no imports, and the next start from the desktop shortcut opened the
+  old 1.0.2 with its data. The installer is now started directly (Unicode-safe), waits for the
+  app to close, and restarts it itself.
+- **Repair of the 1.0.3 mis-install**: when 1.0.4 is applied by an older app, it detects the
+  wrong target and installs into the real app folder instead. The stray copy left by 1.0.3 is
+  turned into a shortcut to the real app. No data is moved or deleted.
+- **App icon not updating** (`Package/installer.nsi`): the desktop shortcut is refreshed with an
+  explicit icon and Explorer's icon cache is notified after every install.
+
+### Changed
+- The install folder is remembered in `HKCU\Software\HUMS VXP Monitoring`; manual installs
+  pre-select it.
+- The downloaded installer is deleted from temp on the next app start.
+
+---
+
 ## [1.0.3] — 2026-11-16 — React/Electron
 
 Trend detection now catches **step changes** — components that jump to a new level and

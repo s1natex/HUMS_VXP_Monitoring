@@ -1,4 +1,4 @@
-# VXP Monitoring — Project Spec v1.0.3 (VXP 1.0 MVP)
+# VXP Monitoring — Project Spec v1.0.4 (VXP 1.0 MVP)
 **Brook Aviation | S-76C++ Fleet | Maintenance Vibration Monitoring**
 
 > This document is a living spec for the `./app/` codebase.
@@ -688,7 +688,9 @@ Windows packaging lives in `./Package` (full guide: `Package/Instructions.md`).
   packaged (`SOURCE_DIR` → `resources\source`); dev paths unchanged.
 - **Update = same installer over the same folder**: app-owned paths are wiped by explicit
   list; `data\` is never enumerated, deleted or overwritten (hard constraint §10 in spirit —
-  the installer must never touch user data). Silent: `/S [/D=dir]`, exit 5 if app running.
+  the installer must never touch user data). Silent: `/S [/RELAUNCH] [/D=dir]`; waits ≤ 60 s
+  for the app's exe to unlock, then exit 5. Install folder recorded in
+  `HKCU\Software\HUMS VXP Monitoring\InstallDir` (v1.0.4).
 - **First-run seeding** (`main.cjs ensureDataSeed`): additive-only creation of the fleet
   registry (seeded with `4X-BHT`), `report_signer.json`, `comp_limits_vxp.json` and per-tail
   `imports\`/`reports\` scaffolds. Never overwrites; `report_actions_vxp.json` deliberately
@@ -698,8 +700,13 @@ Windows packaging lives in `./Package` (full guide: `Package/Instructions.md`).
   `package.json → updateRepo` (public repo `s1natex/HUMS_VXP_Monitoring`; tag `vX.Y.Z` vs
   `app.getVersion()`) → auto-download of the `.exe` asset to temp (progress events,
   write backpressure, truncation guard) → `UpdateBanner` prompts *Restart & Update* → app
-  quits and a detached cmd script retries the silent installer (`/S /D=<install dir>`,
-  exit 5 = still locked, ≤ 60 tries) then relaunches. Startup check failures are silent;
+  quits; the installer is spawned directly (`/S /RELAUNCH /D=<install dir>`, verbatim
+  command line — no cmd script since v1.0.4, which garbled non-ASCII paths), waits for
+  the exe to unlock, installs and relaunches. Legacy repair (v1.0.4): applied by a
+  ≤ v1.0.3 app (silent, no `/RELAUNCH`) to a target without imports while the real
+  install is known (registry / `<Desktop>\HUMS VXP Monitoring`), the installer updates
+  the real install and turns the stray copy into a launcher (`Package\redirect`).
+  Startup check failures are silent;
   the BottomBar version label (runtime `app:version`, clickable) runs manual checks with
   toast outcomes and a pulsing *Checking for updates…* indicator. Dev mode never installs.
   A re-check only short-circuits to the *Restart & Update* prompt while the downloaded
